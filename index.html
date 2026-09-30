@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文化祭クイズRPG</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <script>
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+            databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT_ID.appspot.com",
+            messagingSenderId: "YOUR_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+        firebase.initializeApp(firebaseConfig);
+    </script>
+    <!-- 📷 画像認識(Teachable Machine)用ライブラリ -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+</head>
+<body style="background: #111; margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh;">
+
+    <div id="game-container" style="width: 100%; max-width: 430px; height: 765px; background: #222; color: #fff; font-family: sans-serif; position: relative; overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); border-radius: 12px; box-sizing: border-box;">
+
+        <div id="hub-screen" style="width: 100%; height: 100%; overflow-y: auto; padding: 15px; padding-bottom: 100px; box-sizing: border-box;">
+            <header style="text-align: center; margin-bottom: 15px;">
+                <h2 style="margin: 0; color: #ffcc00; font-size: 20px;">異世界知識の神殿（学校）</h2>
+                <div class="sub-title" style="font-size: 12px; color: #aaa;">仲間を集めてレイドボスに挑め！</div>
+            </header>
+
+            <div id="character-grid">
+                <div class="char-card locked shining-ready" id="card-japanese" onclick="checkLevelUp('国語')">
+                    <div class="status-badge" id="badge-japanese">未開放</div>
+                    <div class="char-img-container">
+                        <img src="yuzuki_normal.png" alt="国語" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                        <div class="fallback-avatar" style="display: none; font-size: 40px;">👩</div>
+                    </div>
+                    <div class="char-name">紫鳴 結月 (国語)</div>
+                    <div class="exp-bar-container">
+                        <div class="exp-bar" id="exp-bar-japanese" style="width: 0%;"></div>
+                    </div>
+                    <div class="exp-text" id="exp-text-japanese">タップして「キャラ獲得試練」に挑戦！</div>
+                </div>
+
+                <div class="char-card locked" id="card-math" onclick="checkLevelUp('数学')">
+                    <div class="status-badge" id="badge-math">未開放</div>
+                    <div class="char-img-container">
+                        <img src="algebra_normal.png" alt="数学" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                        <div class="fallback-avatar" style="display: none; font-size: 40px;">📐</div>
+                    </div>
+                    <div class="char-name">アルゲブラ (数学)</div>
+                    <div class="exp-bar-container"><div class="exp-bar" id="exp-bar-math" style="width: 0%;"></div></div>
+                    <div class="exp-text" id="exp-text-math">タップして「キャラ獲得試練」に挑戦！</div>
+                </div>
+
+                <div class="char-card locked" id="card-english" onclick="checkLevelUp('英語')">
+                    <div class="status-badge" id="badge-english">未開放</div>
+                    <div class="char-img-container">
+                        <img src="elmesia_normal.png" alt="英語" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                        <div class="fallback-avatar" style="display: none; font-size: 40px;">abc</div>
+                    </div>
+                    <div class="char-name">エルメシア・ルミナリア</div>
+                    <div class="exp-bar-container"><div class="exp-bar" id="exp-bar-english" style="width: 0%;"></div></div>
+                    <div class="exp-text" id="exp-text-english">タップして「キャラ獲得試練」に挑戦！</div>
+                </div>
+
+                <div class="char-card locked" id="card-physics" onclick="checkLevelUp('物理')">
+                    <div class="status-badge" id="badge-physics">未開放</div>
+                    <div class="char-img-container">
+                        <img src="phi_normal.png" alt="物理" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                        <div class="fallback-avatar" style="display: none; font-size: 40px;">🍎</div>
+                    </div>
+                    <div class="char-name">ファイ</div>
+                    <div class="exp-bar-container"><div class="exp-bar" id="exp-bar-physics" style="width: 0%;"></div></div>
+                    <div class="exp-text" id="exp-text-physics">タップして「キャラ獲得試練」に挑戦！</div>
+                </div>
+
+                <div class="char-card locked" id="card-chemistry" onclick="checkLevelUp('化学')">
+                    <div class="status-badge" id="badge-chemistry">未開放</div>
+                    <div class="char-img-container">
+                        <img src="lewis_normal.png" alt="化学" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                        <div class="fallback-avatar" style="display: none; font-size: 40px;">🧪</div>
+                    </div>
+                    <div class="char-name">ルイス・ジョンソン (化学)</div>
+                    <div class="exp-bar-container"><div class="exp-bar" id="exp-bar-chemistry" style="width: 0%;"></div></div>
+                    <div class="exp-text" id="exp-text-chemistry">タップして「キャラ獲得試練」に挑戦！</div>
+                </div>
+
+                <div class="char-card locked" id="card-history" onclick="checkLevelUp('歴史')">
+                    <div class="status-badge" id="badge-history">未開放</div>
+                    <div class="char-img-container">
+                        <img src="yamato_normal.png" alt="歴史" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                        <div class="fallback-avatar" style="display: none; font-size: 40px;">⚔️</div>
+                    </div>
+                    <div class="char-name">大和誠 (歴史)</div>
+                    <div class="exp-bar-container"><div class="exp-bar" id="exp-bar-history" style="width: 0%;"></div></div>
+                    <div class="exp-text" id="exp-text-history">タップして「キャラ獲得試練」に挑戦！</div>
+                </div>
+
+                <div class="char-card locked" id="card-geography" onclick="checkLevelUp('地理')">
+                    <div class="status-badge" id="badge-geography">未開放</div>
+                    <div class="char-img-container">
+                        <img src="inoh_normal.png" alt="地理" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                        <div class="fallback-avatar" style="display: none; font-size: 40px;">🗺️</div>
+                    </div>
+                    <div class="char-name">伊能大地 (地理)</div>
+                    <div class="exp-bar-container"><div class="exp-bar" id="exp-bar-geography" style="width: 0%;"></div></div>
+                    <div class="exp-text" id="exp-text-geography">タップして「キャラ獲得試練」に挑戦！</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="fixed-action-area" style="position: absolute; bottom: 15px; left: 5%; width: 90%; z-index: 9999; text-align: center;">
+            <button id="raid-start-btn" onclick="goToLobby()" disabled style="width: 100%; padding: 15px; background: #444; color: #777; border: 2px solid #555; border-radius: 30px; font-weight: bold; font-size: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.6); cursor: not-allowed; margin-bottom: 8px;">🔒 レイドボスに挑む (国語の解放が必要)</button>
+            <button id="scan-open-btn" onclick="openCameraScreen()" style="width: 100%; padding: 12px; background: linear-gradient(135deg, #00c6ff, #0072ff); color: #fff; border: none; border-radius: 30px; font-weight: bold; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.6); cursor: pointer; margin-bottom: 8px;">📷 キャンパスをスキャンする</button>
+            <button id="party-open-btn" onclick="openPartyScreen()" style="width: 100%; padding: 12px; background: linear-gradient(135deg, #a855f7, #6d28d9); color: #fff; border: none; border-radius: 30px; font-weight: bold; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.6); cursor: pointer;">🎏 パーティ編成 (<span id="party-count-badge">0</span>/4)</button>
+        </div>
+
+        <div id="party-screen" style="display:none; height:100%; box-sizing:border-box; background:#0f0f1a; flex-direction:column; padding:15px;">
+            <header style="text-align:center; margin-bottom:10px;">
+                <h2 style="margin:0; color:#a855f7; font-size:18px;">🎏 パーティ編成</h2>
+                <div style="font-size:12px; color:#aaa; margin-top:4px;">バトルに連れていくキャラを最大4体選ぼう(<span id="party-select-count">0 / 4</span>)</div>
+            </header>
+            <div id="party-select-list" style="flex:1; overflow-y:auto; margin-bottom:12px;"></div>
+            <button onclick="closePartyScreen()" style="width:100%; padding:12px; background:linear-gradient(135deg, #a855f7, #6d28d9); color:#fff; border:none; border-radius:8px; font-size:14px; font-weight:bold; cursor:pointer;">決定して拠点に戻る</button>
+        </div>
+
+        <div id="camera-screen" style="display:none; height:100%; box-sizing:border-box; background:#0a0a0e; flex-direction:column; padding:15px; align-items:center;">
+            <header style="text-align:center; margin-bottom:10px;">
+                <h2 style="margin:0; color:#00c6ff; font-size:18px;">📷 キャンパススキャン</h2>
+                <div style="font-size:12px; color:#aaa; margin-top:4px;">対象物にカメラを向けてください</div>
+            </header>
+
+            <div id="webcam-container" style="width:300px; height:300px; border:3px solid #00c6ff; border-radius:12px; overflow:hidden; background:#000; box-shadow:0 0 20px rgba(0,198,255,0.4); display:flex; align-items:center; justify-content:center; margin-bottom:15px;">
+                <div id="camera-placeholder" style="color:#555; font-size:13px;">カメラを起動しています...</div>
+            </div>
+
+            <div id="scan-status-box" style="width:100%; max-width:300px; background:rgba(0,198,255,0.08); border:1px solid rgba(0,198,255,0.4); border-radius:8px; padding:12px; text-align:center; margin-bottom:15px;">
+                <div id="scan-status-text" style="font-size:13px; color:#fff; min-height:18px;">準備中...</div>
+                <div style="background:#222; border-radius:4px; height:8px; margin-top:8px; overflow:hidden;">
+                    <div id="scan-progress-bar" style="background:#00c6ff; height:8px; width:0%; transition:width 0.15s;"></div>
+                </div>
+            </div>
+
+            <button onclick="closeCameraScreen()" style="width:100%; max-width:300px; padding:12px; background:#444; color:#ccc; border:none; border-radius:8px; font-size:13px; cursor:pointer;">拠点に戻る</button>
+        </div>
+
+        <div id="lobby-screen" style="display: none; padding: 15px; height: 100%; box-sizing: border-box;">
+            <header style="text-align: center;">
+                <h2>討伐隊決起ロビー</h2>
+                <div id="lobby-status-text">他のプレイヤーを待っています...</div>
+                <div style="margin: 10px 0;">参加人数: <span id="current-player-count">1</span> / 10 人</div>
+            </header>
+            <div id="lobby-member-grid"></div>
+            <button onclick="forceStartRaid()" style="width:100%; padding:15px; background:#ff9900; border:none; border-radius:8px; font-weight:bold; color: white; margin-bottom:10px;">💥 今すぐ出撃する</button>
+            <button onclick="leaveLobby()" style="width:100%; padding:10px; background:#555; border:none; border-radius:8px; color:#fff;">ロビーを抜ける</button>
+        </div>
+
+        <div id="trial-screen" style="background: #1a1a1a; height: 100%; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column;">
+
+            <header style="text-align: center; border-bottom: 1px solid #333; padding: 10px 15px 8px 15px; flex-shrink: 0;">
+                <h2 id="trial-title" style="font-size: 16px; color: #fff; margin: 0;">獲得試練</h2>
+                <div id="trial-counter" style="color: #ffcc00; font-size: 13px; font-weight: bold; margin-top: 3px;">
+                    第 1 問目 / 全 10 問 （現在: 0問正解）
+                </div>
+            </header>
+
+            <div id="trial-char-container" style="text-align: center; flex: 1; display: flex; flex-direction: column; justify-content: flex-start; padding: 0 15px;">
+                <img id="trial-p-img" src="yuzuki_normal.png" style="height: 280px; max-height: 280px; object-fit: contain; margin: 0 auto;" onerror="this.style.display='none'; document.getElementById('trial-dummy-avatar').style.display='block';">
+                <div id="trial-dummy-avatar" style="display: none; font-size: 80px; padding: 20px 0;">👩</div>
+                <div id="trial-dialogue-text" style="color: #fff; font-size: 13px; font-weight: bold; margin-top: 10px; min-height: 36px; white-space: pre-line; padding: 0 10px; line-height: 1.3;">さあ、私の問題に答えられるかしら？</div>
+            </div>
+
+            <div style="padding: 10px 15px 15px 15px; flex-shrink: 0;">
+                <div style="background: rgba(0, 0, 0, 0.7); padding: 12px; border-radius: 6px; border: 2px solid #fff; margin-bottom: 10px;">
+                    <div id="trial-question-text" style="color: #fff; font-size: 14px; font-weight: bold; text-align: center; line-height: 1.4;">ここに試練の問題が出ます</div>
+                </div>
+
+                <div id="trial-choices-area" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                    <button style="padding: 12px; background: #333; color: #fff; border: 2px solid #666; border-radius: 8px; font-weight: bold; font-size: 14px; cursor: pointer;" onclick="selectTrialChoice(0)">A</button>
+                    <button style="padding: 12px; background: #333; color: #fff; border: 2px solid #666; border-radius: 8px; font-weight: bold; font-size: 14px; cursor: pointer;" onclick="selectTrialChoice(1)">B</button>
+                    <button style="padding: 12px; background: #333; color: #fff; border: 2px solid #666; border-radius: 8px; font-weight: bold; font-size: 14px; cursor: pointer;" onclick="selectTrialChoice(2)">C</button>
+                    <button style="padding: 12px; background: #333; color: #fff; border: 2px solid #666; border-radius: 8px; font-weight: bold; font-size: 14px; cursor: pointer;" onclick="selectTrialChoice(3)">D</button>
+                </div>
+
+                <button onclick="backToHub()" style="width: 100%; padding: 10px; background: #444; color: #ccc; border: none; border-radius: 8px; font-size: 13px; cursor: pointer;">降参して拠点に戻る</button>
+            </div>
+
+        </div>
+
+        <div id="battle-screen" style="height:100%; box-sizing:border-box; overflow:hidden; display:flex; flex-direction:column; padding:10px; background-image: linear-gradient(rgba(10,10,20,0.55), rgba(10,10,20,0.55)), url('classroom_bg.png'); background-size: cover; background-position: center;">
+
+            <div style="display:flex; gap:10px; height:260px; flex-shrink:0;">
+
+                <!-- 🎏 味方パーティ表示エリア(最大4体・縦並び) -->
+                <div id="party-display-area" style="flex:1.1; display:flex; flex-direction:column; gap:4px; overflow:hidden;">
+                    <div class="party-slot" id="party-slot-0" style="flex:1; display:flex; align-items:center; gap:6px; background:#223; border:2px solid #66ccff; border-radius:8px; padding:4px 6px;">
+                        <img class="party-slot-img" id="party-slot-0-img" src="yuzuki_normal.png" style="width:38px; height:38px; object-fit:contain; flex-shrink:0;" onerror="this.style.visibility='hidden'">
+                        <div id="party-slot-0-sprite" style="display:none; width:38px; height:38px; flex-shrink:0;"></div>
+                        <div style="flex:1; min-width:0;">
+                            <div class="party-slot-name" id="party-slot-0-name" style="font-size:10px; font-weight:bold; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">紫鳴 結月</div>
+                            <div style="background:#333; border-radius:4px; height:7px; margin-top:2px; overflow:hidden;">
+                                <div class="party-slot-hpbar" id="party-slot-0-hpbar" style="background:#33cc66; height:7px; width:100%; transition:width 0.3s;"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="party-slot" id="party-slot-1" style="flex:1; display:flex; align-items:center; gap:6px; background:#223; border:2px solid #445; border-radius:8px; padding:4px 6px; opacity:0.5;">
+                        <img class="party-slot-img" id="party-slot-1-img" src="" style="width:38px; height:38px; object-fit:contain; flex-shrink:0;" onerror="this.style.visibility='hidden'">
+                        <div style="flex:1; min-width:0;">
+                            <div class="party-slot-name" id="party-slot-1-name" style="font-size:10px; font-weight:bold; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">空きスロット</div>
+                            <div style="background:#333; border-radius:4px; height:7px; margin-top:2px; overflow:hidden;">
+                                <div class="party-slot-hpbar" id="party-slot-1-hpbar" style="background:#33cc66; height:7px; width:100%; transition:width 0.3s;"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="party-slot" id="party-slot-2" style="flex:1; display:flex; align-items:center; gap:6px; background:#223; border:2px solid #445; border-radius:8px; padding:4px 6px; opacity:0.5;">
+                        <img class="party-slot-img" id="party-slot-2-img" src="" style="width:38px; height:38px; object-fit:contain; flex-shrink:0;" onerror="this.style.visibility='hidden'">
+                        <div style="flex:1; min-width:0;">
+                            <div class="party-slot-name" id="party-slot-2-name" style="font-size:10px; font-weight:bold; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">空きスロット</div>
+                            <div style="background:#333; border-radius:4px; height:7px; margin-top:2px; overflow:hidden;">
+                                <div class="party-slot-hpbar" id="party-slot-2-hpbar" style="background:#33cc66; height:7px; width:100%; transition:width 0.3s;"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="party-slot" id="party-slot-3" style="flex:1; display:flex; align-items:center; gap:6px; background:#223; border:2px solid #445; border-radius:8px; padding:4px 6px; opacity:0.5;">
+                        <img class="party-slot-img" id="party-slot-3-img" src="" style="width:38px; height:38px; object-fit:contain; flex-shrink:0;" onerror="this.style.visibility='hidden'">
+                        <div style="flex:1; min-width:0;">
+                            <div class="party-slot-name" id="party-slot-3-name" style="font-size:10px; font-weight:bold; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">空きスロット</div>
+                            <div style="background:#333; border-radius:4px; height:7px; margin-top:2px; overflow:hidden;">
+                                <div class="party-slot-hpbar" id="party-slot-3-hpbar" style="background:#33cc66; height:7px; width:100%; transition:width 0.3s;"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 互換用(既存JSから参照される非表示要素) -->
+                    <img id="battle-player-img" src="yuzuki_normal.png" style="display:none;">
+                    <div id="battle-player-name" style="display:none;">紫鳴 結月</div>
+                    <div id="player-hearts" style="display:none;"></div>
+                </div>
+
+                <div id="boss-panel" style="flex:1; background:#411; border:2px solid #ff4444; border-radius:10px; text-align:center; padding:8px;">
+                    <img id="boss-img" src="raid-boss.png"
+                         style="width:100%; height:180px; object-fit:contain;"
+                         onerror="this.style.display='none'">
+                    <div id="boss-name" style="font-weight:bold; font-size:12px;">レイドボス</div>
+                    <div style="font-size:11px;">HP: <span id="boss-hp">500</span></div>
+                    <div style="background:#333; border-radius:4px; height:8px; margin-top:4px;">
+                        <div id="boss-hp-bar" style="background:#ff4444; height:8px; border-radius:4px; width:100%; transition:width 0.3s;"></div>
+                    </div>
+                </div>
+
+                <!-- 👾 雑魚敵エリア(昇格戦用・最大4体。タップで攻撃対象を選択) -->
+                <div id="mob-area" style="display:none; flex:1; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:5px;">
+                    <div class="mob-slot" id="mob-slot-0" onclick="selectMobTarget(0)" style="display:none; position:relative; flex-direction:column; align-items:center; justify-content:flex-start; background:#2a1010; border:2px solid #663333; border-radius:8px; padding:3px; cursor:pointer; overflow:hidden; transition:opacity 0.4s, filter 0.4s, border-color 0.2s;">
+                        <div class="mob-target-mark" id="mob-mark-0" style="display:none; position:absolute; top:1px; left:3px; font-size:11px; color:#ffdd33;">▶</div>
+                        <img class="mob-img" id="mob-img-0" src="" style="width:100%; height:62px; object-fit:contain; image-rendering:pixelated;">
+                        <div class="mob-emoji" id="mob-emoji-0" style="display:none; height:62px; line-height:62px; font-size:34px;">👾</div>
+                        <div class="mob-name" id="mob-name-0" style="font-size:9px; font-weight:bold; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;"></div>
+                        <div style="width:100%; background:#333; border-radius:3px; height:6px; margin-top:2px; overflow:hidden;">
+                            <div class="mob-hpbar" id="mob-hpbar-0" style="background:#ff4444; height:6px; width:100%; transition:width 0.3s;"></div>
+                        </div>
+                        <div class="mob-hptext" id="mob-hptext-0" style="font-size:8px; color:#ccc;"></div>
+                    </div>
+                    <div class="mob-slot" id="mob-slot-1" onclick="selectMobTarget(1)" style="display:none; position:relative; flex-direction:column; align-items:center; justify-content:flex-start; background:#2a1010; border:2px solid #663333; border-radius:8px; padding:3px; cursor:pointer; overflow:hidden; transition:opacity 0.4s, filter 0.4s, border-color 0.2s;">
+                        <div class="mob-target-mark" id="mob-mark-1" style="display:none; position:absolute; top:1px; left:3px; font-size:11px; color:#ffdd33;">▶</div>
+                        <img class="mob-img" id="mob-img-1" src="" style="width:100%; height:62px; object-fit:contain; image-rendering:pixelated;">
+                        <div class="mob-emoji" id="mob-emoji-1" style="display:none; height:62px; line-height:62px; font-size:34px;">👾</div>
+                        <div class="mob-name" id="mob-name-1" style="font-size:9px; font-weight:bold; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;"></div>
+                        <div style="width:100%; background:#333; border-radius:3px; height:6px; margin-top:2px; overflow:hidden;">
+                            <div class="mob-hpbar" id="mob-hpbar-1" style="background:#ff4444; height:6px; width:100%; transition:width 0.3s;"></div>
+                        </div>
+                        <div class="mob-hptext" id="mob-hptext-1" style="font-size:8px; color:#ccc;"></div>
+                    </div>
+                    <div class="mob-slot" id="mob-slot-2" onclick="selectMobTarget(2)" style="display:none; position:relative; flex-direction:column; align-items:center; justify-content:flex-start; background:#2a1010; border:2px solid #663333; border-radius:8px; padding:3px; cursor:pointer; overflow:hidden; transition:opacity 0.4s, filter 0.4s, border-color 0.2s;">
+                        <div class="mob-target-mark" id="mob-mark-2" style="display:none; position:absolute; top:1px; left:3px; font-size:11px; color:#ffdd33;">▶</div>
+                        <img class="mob-img" id="mob-img-2" src="" style="width:100%; height:62px; object-fit:contain; image-rendering:pixelated;">
+                        <div class="mob-emoji" id="mob-emoji-2" style="display:none; height:62px; line-height:62px; font-size:34px;">👾</div>
+                        <div class="mob-name" id="mob-name-2" style="font-size:9px; font-weight:bold; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;"></div>
+                        <div style="width:100%; background:#333; border-radius:3px; height:6px; margin-top:2px; overflow:hidden;">
+                            <div class="mob-hpbar" id="mob-hpbar-2" style="background:#ff4444; height:6px; width:100%; transition:width 0.3s;"></div>
+                        </div>
+                        <div class="mob-hptext" id="mob-hptext-2" style="font-size:8px; color:#ccc;"></div>
+                    </div>
+                    <div class="mob-slot" id="mob-slot-3" onclick="selectMobTarget(3)" style="display:none; position:relative; flex-direction:column; align-items:center; justify-content:flex-start; background:#2a1010; border:2px solid #663333; border-radius:8px; padding:3px; cursor:pointer; overflow:hidden; transition:opacity 0.4s, filter 0.4s, border-color 0.2s;">
+                        <div class="mob-target-mark" id="mob-mark-3" style="display:none; position:absolute; top:1px; left:3px; font-size:11px; color:#ffdd33;">▶</div>
+                        <img class="mob-img" id="mob-img-3" src="" style="width:100%; height:62px; object-fit:contain; image-rendering:pixelated;">
+                        <div class="mob-emoji" id="mob-emoji-3" style="display:none; height:62px; line-height:62px; font-size:34px;">👾</div>
+                        <div class="mob-name" id="mob-name-3" style="font-size:9px; font-weight:bold; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;"></div>
+                        <div style="width:100%; background:#333; border-radius:3px; height:6px; margin-top:2px; overflow:hidden;">
+                            <div class="mob-hpbar" id="mob-hpbar-3" style="background:#ff4444; height:6px; width:100%; transition:width 0.3s;"></div>
+                        </div>
+                        <div class="mob-hptext" id="mob-hptext-3" style="font-size:8px; color:#ccc;"></div>
+                    </div>
+                </div>
+
+            </div>
+
+            <div style="flex:1; display:flex; flex-direction:column; justify-content:center; align-items:center;">
+                <div id="battle-timer" style="font-size:24px; font-weight:bold; color:#ffcc00;">⏱ 15</div>
+                <div id="battle-message" style="font-size:13px; color:#fff; opacity:0; transition:opacity 0.3s; text-align:center; margin-top:8px;"></div>
+            </div>
+
+            <div style="flex-shrink:0;">
+
+                <div style="display:flex; gap:8px; justify-content:center; margin-bottom:8px;">
+                    <button id="skill-timestop-btn" class="skill-btn" onclick="useTimeStop()">⏰ 時間停止 (3秒)</button>
+                    <button class="skill-btn" disabled style="opacity:0.4;">🔥 スキル2</button>
+                    <button class="skill-btn" disabled style="opacity:0.4;">⚡ スキル3</button>
+                    <button class="skill-btn" disabled style="opacity:0.4;">💎 スキル4</button>
+                </div>
+
+                <div style="background:#222; border:2px solid white; border-radius:10px; padding:12px; min-height:70px; display:flex; justify-content:center; align-items:center; margin-bottom:8px;">
+                    <div id="battle-question-text" style="font-size:16px; font-weight:bold; text-align:center;">問題表示エリア</div>
+                </div>
+
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+                    <button onclick="selectChoice(0)" id="choice0" style="padding:12px; background:#333; color:#fff; border:2px solid #666; border-radius:8px; font-weight:bold; font-size:14px; cursor:pointer;">A</button>
+                    <button onclick="selectChoice(1)" id="choice1" style="padding:12px; background:#333; color:#fff; border:2px solid #666; border-radius:8px; font-weight:bold; font-size:14px; cursor:pointer;">B</button>
+                    <button onclick="selectChoice(2)" id="choice2" style="padding:12px; background:#333; color:#fff; border:2px solid #666; border-radius:8px; font-weight:bold; font-size:14px; cursor:pointer;">C</button>
+                    <button onclick="selectChoice(3)" id="choice3" style="padding:12px; background:#333; color:#fff; border:2px solid #666; border-radius:8px; font-weight:bold; font-size:14px; cursor:pointer;">D</button>
+                </div>
+
+                <button onclick="endBattle()" style="width:100%; padding:10px; background:#444; color:white; border:none; border-radius:10px; cursor:pointer;">撤退</button>
+
+            </div>
+
+        </div>
+
+        <div id="tutorial-screen" style="height:100%; box-sizing:border-box; background:#1a1a1a; display:flex; flex-direction:column; padding:20px;">
+
+            <div style="text-align:center; color:#ffcc00; font-size:13px; font-weight:bold; margin-bottom:15px;">
+                <span id="tutorial-page-num">1</span> / 4
+            </div>
+
+            <div style="flex:1; display:flex; flex-direction:column; justify-content:center;" id="tutorial-content">
+            </div>
+
+            <div style="display:flex; gap:10px; margin-top:15px;">
+                <button id="tutorial-prev-btn" onclick="tutorialPrev()" style="flex:1; padding:12px; background:#444; color:#ccc; border:none; border-radius:8px; font-size:14px; cursor:pointer;">◀ 前へ</button>
+                <button id="tutorial-next-btn" onclick="tutorialNext()" style="flex:1; padding:12px; background:linear-gradient(135deg,#ff9900,#ff5500); color:#fff; border:none; border-radius:8px; font-size:14px; font-weight:bold; cursor:pointer;">次へ ▶</button>
+            </div>
+
+        </div>
+
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
