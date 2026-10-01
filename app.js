@@ -50,21 +50,8 @@ let raidPlayersListenerAttached = false;
 let raidStatusListenerAttached = false;
 
 // --- 昇格戦用 ---
-// --- 👾 敵キャラ(雑魚敵)システム ---
-const enemyRoster = [
-    { id: "golem",          name: "謎かけゴーレム",   img: "enemy_golem.png",          emoji: "🗿", hpMul: 1.4 },
-    { id: "fairy_witch",    name: "本の妖精魔女",     img: "enemy_fairy_witch.png",    emoji: "🧚", hpMul: 0.8 },
-    { id: "treant",         name: "読書の若木",       img: "enemy_treant.png",         emoji: "🌱", hpMul: 1.0 },
-    { id: "robot",          name: "歯車の番人",       img: "enemy_robot.png",          emoji: "🤖", hpMul: 1.2 },
-    { id: "alchemist",      name: "老錬金術師",       img: "enemy_alchemist.png",      emoji: "🧙", hpMul: 0.9 },
-    { id: "owl_scholar",    name: "書記コウモリ",     img: "enemy_owl_scholar.png",    emoji: "🦇", hpMul: 0.8 },
-    { id: "elf_bard",       name: "ABC吟遊詩人",      img: "enemy_elf_bard.png",       emoji: "🎵", hpMul: 0.9 },
-    { id: "octopus_kimono", name: "墨染めタコ書家",   img: "enemy_octopus_kimono.png", emoji: "🐙", hpMul: 1.2 },
-    { id: "octopus_tech",   name: "電脳タコ賢者",     img: "enemy_octopus_tech.png",   emoji: "🐙", hpMul: 1.3 },
-    { id: "test_ghost",     name: "赤点の亡霊",       img: "enemy_clock.png",          emoji: "📄", hpMul: 0.7 },
-];
-let mobEnemies = [];      // 現在の戦闘に出ている敵(最大4体)
-let mobTargetIndex = 0;   // 現在の攻撃対象
+let evolutionBossHp = 500;
+let evolutionBossMaxHp = 500;
 let evolutionPlayerHearts = 5;
 let evolutionPlayerMaxHearts = 5;
 let evolutionQuestion = null;
@@ -1195,14 +1182,14 @@ const characterQuotes = {
     "国語": {
         intro: "さあ、私の問題に答えられるかしら？",
         win: [
-            "あら、正解よ！お見事ね。",
-            "ふふ、やるじゃない。その調子よ！",
-            "正解！あなたの知識、本物のようね。"
+            "ふん、当然よね。",
+            "いいじゃない！その調子よ！",
+            "別に…仲間になりたいわけじゃないわよ！"
         ],
         lose: [
-            "ふふ、残念。勉強が足りないんじゃない？",
-            "あちゃー…それは間違いよ。",
-            "そこは間違えちゃダメなところよ？"
+            "それは違うわよ！",
+            "なんで間違えるのよ！",
+            "私を仲間にするんでしょ！"
         ]
     },
     "数学": {
@@ -1386,12 +1373,17 @@ function startEvolutionBattle() {
     const lv = characterLevels[evolutionSubject].level;
     const stats = getPlayerStats(lv);
 
-    // 雑魚敵をランダムに出現させる(Lv1→2は3体、Lv2→3は4体。中ボス戦にしたい場合は spawnMobs(1, lv) )
-    spawnMobs(lv === 1 ? 3 : 4, lv);
-    showBattlePanels("mobs");
+    evolutionBossHp = getEnemyHp(lv);
+    evolutionBossMaxHp = evolutionBossHp;
     evolutionPlayerHearts = stats.hearts;
     evolutionPlayerMaxHearts = stats.hearts;
     skillUsed = false;
+
+    const bossNameEl = document.getElementById("boss-name");
+    if (bossNameEl) bossNameEl.innerText = `昇格試験官 (Lv${lv}→${lv + 1})`;
+
+    const bossImg = document.getElementById("boss-img");
+    if (bossImg) { bossImg.style.display = "block"; bossImg.src = "raid-boss.png"; }
 
     const skillBtn = document.getElementById("skill-timestop-btn");
     if (skillBtn) {
@@ -1407,130 +1399,15 @@ function startEvolutionBattle() {
 }
 
 function updateEvolutionUI() {
+    const bossHpEl = document.getElementById("boss-hp");
+    if (bossHpEl) bossHpEl.innerText = evolutionBossHp;
+
     // 味方パーティ・スロット0(実際に戦っているキャラ)のHPバーを更新
     updateActivePartyHpBar(evolutionPlayerHearts, evolutionPlayerMaxHearts);
 
-    // 敵(雑魚)のHPバー・表示を更新
-    renderMobs();
-}
-
-// ボス用パネル(レイド戦)と雑魚敵エリア(昇格戦)を切り替える
-function showBattlePanels(mode) {
-    const bossPanel = document.getElementById("boss-panel");
-    const mobArea = document.getElementById("mob-area");
-    if (mode === "mobs") {
-        if (bossPanel) bossPanel.style.display = "none";
-        if (mobArea) mobArea.style.display = "grid";
-    } else {
-        if (bossPanel) bossPanel.style.display = "block";
-        if (mobArea) mobArea.style.display = "none";
-    }
-}
-
-// 敵をcount体ランダムに出現させる(全体のHP合計は今までの昇格戦とほぼ同じになるよう配分)
-function spawnMobs(count, lv) {
-    const n = Math.max(1, Math.min(4, count));
-    const picked = [...enemyRoster].sort(() => Math.random() - 0.5).slice(0, n);
-    const baseHp = getEnemyHp(lv) / n;
-    mobEnemies = picked.map(e => {
-        const hp = Math.max(100, Math.round((baseHp * e.hpMul) / 10) * 10);
-        return { ...e, hp: hp, maxHp: hp };
-    });
-    mobTargetIndex = 0;
-}
-
-function getAliveMobIndexes() {
-    return mobEnemies.map((m, i) => (m.hp > 0 ? i : -1)).filter(i => i >= 0);
-}
-
-// 敵をタップして攻撃対象を選ぶ
-function selectMobTarget(i) {
-    if (currentBattleMode !== "evolution") return;
-    if (!mobEnemies[i] || mobEnemies[i].hp <= 0) return;
-    mobTargetIndex = i;
-    renderMobs();
-}
-
-// 現在の攻撃対象にダメージを与える。結果 { name, defeated, index } を返す
-function damageTargetMob(dmg) {
-    let idx = mobTargetIndex;
-    if (!mobEnemies[idx] || mobEnemies[idx].hp <= 0) {
-        const alive = getAliveMobIndexes();
-        if (alive.length === 0) return null;
-        idx = alive[0];
-        mobTargetIndex = idx;
-    }
-    const m = mobEnemies[idx];
-    m.hp = Math.max(0, m.hp - dmg);
-    const defeated = m.hp <= 0;
-    if (defeated) {
-        const alive = getAliveMobIndexes();
-        if (alive.length > 0) mobTargetIndex = alive[0];
-    }
-
-    // ヒット時の揺れ演出
-    const slot = document.getElementById("mob-slot-" + idx);
-    if (slot && slot.animate) {
-        slot.animate(
-            [{ transform: "translateX(0)" }, { transform: "translateX(-5px)" }, { transform: "translateX(5px)" }, { transform: "translateX(0)" }],
-            { duration: 250 }
-        );
-    }
-    return { name: m.name, defeated: defeated, index: idx };
-}
-
-function allMobsDefeated() {
-    return mobEnemies.length > 0 && mobEnemies.every(m => m.hp <= 0);
-}
-
-// 敵4枠の表示を最新状態に更新する(体数に応じてレイアウトも切り替え)
-function renderMobs() {
-    const n = mobEnemies.length;
-    const imgHeight = n === 1 ? "150px" : (n === 2 ? "110px" : "62px");
-
-    for (let i = 0; i < 4; i++) {
-        const slot = document.getElementById("mob-slot-" + i);
-        if (!slot) continue;
-        const m = mobEnemies[i];
-        if (!m) { slot.style.display = "none"; continue; }
-
-        slot.style.display = "flex";
-        // 体数が少ない時は1体あたりを大きく表示
-        if (n === 1) { slot.style.gridColumn = "1 / span 2"; slot.style.gridRow = "1 / span 2"; }
-        else if (n === 2) { slot.style.gridColumn = "auto"; slot.style.gridRow = "1 / span 2"; }
-        else { slot.style.gridColumn = "auto"; slot.style.gridRow = "auto"; }
-
-        const img = document.getElementById("mob-img-" + i);
-        const emoji = document.getElementById("mob-emoji-" + i);
-        const nameEl = document.getElementById("mob-name-" + i);
-        const bar = document.getElementById("mob-hpbar-" + i);
-        const hpText = document.getElementById("mob-hptext-" + i);
-        const mark = document.getElementById("mob-mark-" + i);
-
-        if (img && img.dataset.src !== m.img) {
-            img.dataset.src = m.img;
-            img.style.display = "block";
-            if (emoji) { emoji.style.display = "none"; emoji.innerText = m.emoji; }
-            img.onerror = function () {
-                this.style.display = "none";
-                if (emoji) emoji.style.display = "block";
-            };
-            img.src = m.img;
-        }
-        if (img) img.style.height = imgHeight;
-        if (emoji) { emoji.style.height = imgHeight; emoji.style.lineHeight = imgHeight; }
-        if (nameEl) nameEl.innerText = m.name;
-        if (bar) bar.style.width = `${(m.hp / m.maxHp) * 100}%`;
-        if (hpText) hpText.innerText = `${m.hp} / ${m.maxHp}`;
-
-        const dead = m.hp <= 0;
-        const isTarget = !dead && i === mobTargetIndex;
-        slot.style.opacity = dead ? "0.3" : "1";
-        slot.style.filter = dead ? "grayscale(1)" : "none";
-        slot.style.borderColor = isTarget ? "#ffdd33" : "#663333";
-        slot.style.boxShadow = isTarget ? "0 0 8px rgba(255,221,51,0.6)" : "none";
-        if (mark) mark.style.display = isTarget ? "block" : "none";
-    }
+    // ボスHPバー
+    const bossBarEl = document.getElementById("boss-hp-bar");
+    if (bossBarEl) bossBarEl.style.width = `${(evolutionBossHp / evolutionBossMaxHp) * 100}%`;
 }
 
 function generateEvolutionQuestion() {
@@ -1677,11 +1554,9 @@ function handleEvolutionAnswer(selectedIndex) {
 
     if (selectedIndex === evolutionQuestion.answer) {
         // 正解 → 笑顔
-        const hit = damageTargetMob(stats.attack);
+        evolutionBossHp = Math.max(0, evolutionBossHp - stats.attack);
         flashScreen("correct");
-        const targetText = hit ? `${hit.name}に ` : "";
-        const defeatText = hit && hit.defeated ? ` ${hit.name}を撃破！` : "";
-        showBattleMessage(`✅ 正解！ ${getRandomAttackLine(evolutionSubject)} ${targetText}${stats.attack} ダメージ！${defeatText}`);
+        showBattleMessage(`✅ 正解！ ${getRandomAttackLine(evolutionSubject)} ${stats.attack} ダメージ！`);
         playSpriteState(evolutionSubject, "attack");
 
         const correctBtn = document.getElementById("choice" + selectedIndex);
@@ -1702,8 +1577,8 @@ function handleEvolutionAnswer(selectedIndex) {
     updateEvolutionUI();
 
     setTimeout(() => {
-        if (allMobsDefeated()) {
-            // 勝利(敵を全員倒した)
+        if (evolutionBossHp <= 0) {
+            // 勝利
             characterLevels[evolutionSubject].level++;
             saveGame();
             alert(`🎉 昇格成功！\nLv.${characterLevels[evolutionSubject].level} になりました！`);
@@ -1757,12 +1632,6 @@ function onTimeUp() {
         flashScreen("wrong");
         showBattleMessage("⌛ 時間切れ！ ハートが1つ減った！");
         playSpriteState(evolutionSubject, "hurt");
-
-        for (let i = 0; i < 4; i++) {
-            const btn = document.getElementById("choice" + i);
-            if (btn) btn.disabled = true;
-        }
-        const correctBtn = document.getElementById("choice" + evolutionQuestion.answer);
         if (correctBtn) { correctBtn.style.background = "#004400"; correctBtn.style.borderColor = "#00ff00"; }
 
         updateEvolutionUI();
@@ -2126,10 +1995,6 @@ function enterRaidBattle() {
     const stats = getPlayerStats(lv);
     raidPlayerHearts = stats.hearts;
     raidPlayerMaxHearts = stats.hearts;
-
-    showBattlePanels("boss");
-
-    showBattlePanels("boss");
 
     const bossNameEl = document.getElementById("boss-name");
     if (bossNameEl) bossNameEl.innerText = "共闘レイドボス";
