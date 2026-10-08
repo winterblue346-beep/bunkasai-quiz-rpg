@@ -98,6 +98,57 @@ function getPlayerStats(level) {
     return stats[level] || stats[1];
 }
 
+// ==========================================
+// 👾 雑魚敵プール(昇格戦でボスの前に登場)
+//   img  : 画像ファイル名(index.html と同じ階層に置く)
+//   name : 戦闘画面に表示される名前(自由に変更OK)
+// ==========================================
+const MOB_POOL = [
+    { img: "enemy1.png",  name: "ハテナ・ゴーレム" },
+    { img: "enemy2.png",  name: "ブック・フェアリー" },
+    { img: "enemy4.png",  name: "ギア・ロボ" },
+    { img: "enemy5.png",  name: "フラスコの老魔術師" },
+    { img: "enemy6.png",  name: "ペーパー・バット" },
+    { img: "enemy7.png",  name: "ABCのエルフ" },
+    { img: "enemy8.png",  name: "墨絵のタコ師匠" },
+    { img: "enemy9.png",  name: "コード・クラーケン" },
+    { img: "enemy10.png", name: "くしゃくしゃ答案" }
+];
+const MOB_COUNT_BY_LEVEL = { 1: 1, 2: 2 };   // 現在レベルごとの雑魚敵の数(ボスの前に出る)
+const MOB_HP_ATTACK_MULTIPLIER = 2;          // 雑魚HP = 攻撃力 × この数(=正解2回で倒せる)
+
+let evolutionWaves = [];
+let evolutionWaveIndex = 0;
+
+function buildEvolutionWaves(lv, stats) {
+    const mobCount = MOB_COUNT_BY_LEVEL[lv] !== undefined ? MOB_COUNT_BY_LEVEL[lv] : 1;
+    const pool = MOB_POOL.slice();
+    for (let i = pool.length - 1; i > 0; i--) {          // シャッフル(同じ敵が連続しない)
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    const waves = pool.slice(0, mobCount).map(m => ({
+        boss: false, name: m.name, img: m.img, hp: stats.attack * MOB_HP_ATTACK_MULTIPLIER
+    }));
+    waves.push({ boss: true, name: `昇格試験官 (Lv${lv}→${lv + 1})`, img: "raid-boss.png", hp: getEnemyHp(lv) });
+    return waves;
+}
+
+function loadEvolutionEnemy(healed) {
+    const e = evolutionWaves[evolutionWaveIndex];
+    if (!e) return;
+    evolutionBossHp = e.hp;
+    evolutionBossMaxHp = e.hp;
+
+    const bossNameEl = document.getElementById("boss-name");
+    if (bossNameEl) bossNameEl.innerText = `${e.name}（${evolutionWaveIndex + 1}/${evolutionWaves.length}）`;
+    const bossImg = document.getElementById("boss-img");
+    if (bossImg) { bossImg.style.display = "block"; bossImg.src = e.img; }
+
+    updateEvolutionUI();
+    showBattleMessage(`${healed ? "💚 ハート回復！ " : ""}${e.boss ? "⚠️" : "⚔️"} ${e.name} が現れた！`);
+}
+
 function getEnemyHp(level) {
     // level = 現在のレベル（これに勝つと level+1 になる）
     if (level === 1) return 500;
@@ -1378,17 +1429,13 @@ function startEvolutionBattle() {
     const lv = characterLevels[evolutionSubject].level;
     const stats = getPlayerStats(lv);
 
-    evolutionBossHp = getEnemyHp(lv);
-    evolutionBossMaxHp = evolutionBossHp;
     evolutionPlayerHearts = stats.hearts;
     evolutionPlayerMaxHearts = stats.hearts;
     skillUsed = false;
 
-    const bossNameEl = document.getElementById("boss-name");
-    if (bossNameEl) bossNameEl.innerText = `昇格試験官 (Lv${lv}→${lv + 1})`;
-
-    const bossImg = document.getElementById("boss-img");
-    if (bossImg) { bossImg.style.display = "block"; bossImg.src = "raid-boss.png"; }
+    evolutionWaves = buildEvolutionWaves(lv, stats);
+    evolutionWaveIndex = 0;
+    loadEvolutionEnemy();
 
     const skillBtn = document.getElementById("skill-timestop-btn");
     if (skillBtn) {
@@ -1582,7 +1629,20 @@ function handleEvolutionAnswer(selectedIndex) {
     updateEvolutionUI();
 
     setTimeout(() => {
-        if (evolutionBossHp <= 0) {
+        if (evolutionBossHp <= 0 && evolutionWaveIndex < evolutionWaves.length - 1) {
+            // 雑魚敵を撃破 → 次の敵へ(雑魚ならハート1回復)
+            const defeated = evolutionWaves[evolutionWaveIndex];
+            let healed = false;
+            if (!defeated.boss && evolutionPlayerHearts < evolutionPlayerMaxHearts) {
+                evolutionPlayerHearts++;
+                healed = true;
+            }
+            evolutionWaveIndex++;
+            loadEvolutionEnemy(healed);
+            playSpriteState(evolutionSubject, "idle");
+            generateEvolutionQuestion();
+            startTimer();
+        } else if (evolutionBossHp <= 0) {
             // 勝利
             characterLevels[evolutionSubject].level++;
             saveGame();
@@ -1776,47 +1836,162 @@ async function loadTMModelIfNeeded() {
     tmMaxPredictions = tmModel.getTotalClasses();
 }
 
+const APP_BUILD = "v4-camera";   // 画面に表示される版番号(新しい app.js が届いたか確認用)
+let scanVideo = null;
+let scanCanvas = null;
+let scanStream = null;
+let scanFacing = "environment";  // "environment"=背面 / "user"=前面
+let scanSession = 0;             // カメラ切り替え時に古いループを止めるための番号
+
+async function startScanCamera() {
+    let stream;
+    try {
+        // まず指定の向きを厳密に要求(iPhoneなど)
+        stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: { facingMode: { exact: scanFacing } }
+        });
+    } catch (e) {
+        // その向きのカメラが無い端末(PCなど)では、使えるカメラにフォールバック
+        stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: { facingMode: { ideal: scanFacing } }
+        });
+    }
+    scanStream = stream;
+
+    scanVideo = document.createElement("video");
+    scanVideo.setAttribute("playsinline", "");        // iPhone Safariで全画面化されないために必須
+    scanVideo.setAttribute("webkit-playsinline", "");
+    scanVideo.muted = true;
+    scanVideo.srcObject = stream;
+    await scanVideo.play();
+
+    scanCanvas = document.createElement("canvas");
+    scanCanvas.width = 300;
+    scanCanvas.height = 300;
+    scanCanvas.style.width = "100%";
+    scanCanvas.style.height = "100%";
+}
+
+// 映像の中央を正方形に切り出して scanCanvas に描く(Teachable Machineの学習時と同じ見え方)
+function drawScanFrame() {
+    const v = scanVideo;
+    if (!v || !v.videoWidth || !scanCanvas) return false;
+    const size = Math.min(v.videoWidth, v.videoHeight);
+    const sx = (v.videoWidth - size) / 2;
+    const sy = (v.videoHeight - size) / 2;
+    scanCanvas.getContext("2d").drawImage(v, sx, sy, size, size, 0, 0, 300, 300);
+    return true;
+}
+
+function ensureScanExtras() {
+    if (document.getElementById("scan-switch-btn")) return;
+    const statusBox = document.getElementById("scan-status-box");
+    if (!statusBox) return;
+    const btn = document.createElement("button");
+    btn.id = "scan-switch-btn";
+    btn.innerText = "🔄 カメラを切り替える";
+    btn.style.cssText = "width:100%;max-width:300px;padding:10px;background:#0072ff;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;margin-bottom:6px;";
+    btn.onclick = switchScanCamera;
+    const info = document.createElement("div");
+    info.id = "scan-info-text";
+    info.style.cssText = "font-size:11px;color:#888;margin-bottom:8px;";
+    statusBox.insertAdjacentElement("afterend", btn);
+    btn.insertAdjacentElement("afterend", info);
+}
+
+function updateScanInfo() {
+    const el = document.getElementById("scan-info-text");
+    if (!el) return;
+    let label = "不明";
+    try {
+        const st = scanStream.getVideoTracks()[0].getSettings();
+        if (st.facingMode === "environment") label = "背面";
+        else if (st.facingMode === "user") label = "前面(イン)";
+    } catch (e) {}
+    el.innerText = `${APP_BUILD} / 使用中: ${label}カメラ`;
+}
+
+async function switchScanCamera() {
+    if (!scanVideo) return;
+    scanSession++;
+    scanActive = false;
+    if (scanLoopId) { cancelAnimationFrame(scanLoopId); scanLoopId = null; }
+    if (scanStream) {
+        try { scanStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+        scanStream = null;
+    }
+    scanFacing = (scanFacing === "environment") ? "user" : "environment";
+    const statusEl = document.getElementById("scan-status-text");
+    try {
+        await startScanCamera();
+        const container = document.getElementById("webcam-container");
+        if (container && scanCanvas) { container.innerHTML = ""; container.appendChild(scanCanvas); }
+        scanStreakCount = 0;
+        scanStreakSubject = null;
+        scanActive = true;
+        updateScanInfo();
+        scanLoopId = window.requestAnimationFrame(cameraScanLoop);
+    } catch (err) {
+        console.error(err);
+        if (statusEl) statusEl.innerText = "⚠️ カメラを切り替えられませんでした。";
+    }
+}
+
 async function openCameraScreen() {
     showOnlyThisScreen("camera-screen");
+    scanSession++;
+    scanFacing = "environment";
+    ensureScanExtras();
     const statusEl = document.getElementById("scan-status-text");
     const placeholderEl = document.getElementById("camera-placeholder");
     if (statusEl) statusEl.innerText = "モデルを読み込んでいます...";
 
     try {
-        try {
-            await loadTMModelIfNeeded();
-        } catch (modelErr) {
-            console.error("モデル読み込みエラー:", modelErr);
-            if (statusEl) statusEl.innerText = "⚠️ 認識モデルを読み込めませんでした。model フォルダ内のファイルを確認してください。";
-            return;
-        }
+        await loadTMModelIfNeeded();
+    } catch (modelErr) {
+        console.error("モデル読み込みエラー:", modelErr);
+        if (statusEl) statusEl.innerText = "⚠️ 認識モデルを読み込めませんでした。model フォルダ内のファイルを確認してください。";
+        return;
+    }
 
-        // 校舎など外の景色を撮るので、背面カメラを優先し、左右反転もしない
-        tmWebcam = new tmImage.Webcam(300, 300, false); // width, height, flip
-        await tmWebcam.setup({ facingMode: "environment" }); // カメラの使用許可をリクエスト
-        await tmWebcam.play();
+    try {
+        if (statusEl) statusEl.innerText = "カメラを起動しています...";
+        await startScanCamera();
 
         if (placeholderEl) placeholderEl.remove();
         const container = document.getElementById("webcam-container");
-        if (container && tmWebcam.canvas) container.appendChild(tmWebcam.canvas);
+        if (container && scanCanvas) container.appendChild(scanCanvas);
 
         scanActive = true;
         scanStreakCount = 0;
         scanStreakSubject = null;
+        updateScanInfo();
         if (statusEl) statusEl.innerText = "対象物を画面に収めてください";
 
         scanLoopId = window.requestAnimationFrame(cameraScanLoop);
     } catch (err) {
         console.error(err);
-        if (statusEl) statusEl.innerText = "⚠️ カメラを起動できませんでした。カメラの使用を許可してください。";
+        stopCameraScan();
+        if (statusEl) {
+            statusEl.innerText = (err && err.name === "NotAllowedError")
+                ? "⚠️ カメラの使用が許可されていません。設定でSafariのカメラを許可してください。"
+                : "⚠️ カメラを起動できませんでした。";
+        }
     }
 }
 
 async function cameraScanLoop() {
-    if (!scanActive || !tmWebcam || !tmModel) return;
+    if (!scanActive || !scanVideo || !tmModel) return;
+    const sid = scanSession;
 
-    tmWebcam.update();
-    const predictions = await tmModel.predict(tmWebcam.canvas);
+    if (!drawScanFrame()) {
+        scanLoopId = window.requestAnimationFrame(cameraScanLoop);
+        return;
+    }
+    const predictions = await tmModel.predict(scanCanvas);
+    if (!scanActive || sid !== scanSession) return; // 判定中に画面を閉じた/カメラを切り替えた場合
 
     // 一番確信度の高いクラスを探す
     let top = predictions[0];
@@ -1865,10 +2040,14 @@ function onScanSuccess(subject, className) {
 
 function stopCameraScan() {
     scanActive = false;
+    scanSession++;
     if (scanLoopId) { cancelAnimationFrame(scanLoopId); scanLoopId = null; }
-    if (tmWebcam) {
-        try { tmWebcam.stop(); } catch (e) {}
+    if (scanStream) {
+        try { scanStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+        scanStream = null;
     }
+    scanVideo = null;
+    scanCanvas = null;
     const container = document.getElementById("webcam-container");
     if (container) container.innerHTML = '<div id="camera-placeholder" style="color:#555; font-size:13px;">カメラを起動しています...</div>';
 }
