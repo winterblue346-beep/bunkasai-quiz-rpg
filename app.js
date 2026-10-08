@@ -48,6 +48,11 @@ let raidQuestion = null;
 let raidBossHpListenerAttached = false;
 let raidPlayersListenerAttached = false;
 let raidStatusListenerAttached = false;
+const RAID_DEFAULT_HP = 100000;
+let raidActive = false;      // ロビー〜バトル中は true
+let raidInLobby = false;     // ロビー待機中だけ true(この間だけ出撃通知で戦闘へ入る)
+let lobbyEnterToken = 0;     // 入室中に「抜ける」を押された場合の中断用
+let lastLobbyPlayers = {};
 
 // --- 昇格戦用 ---
 let evolutionBossHp = 500;
@@ -1632,7 +1637,6 @@ function onTimeUp() {
         flashScreen("wrong");
         showBattleMessage("⌛ 時間切れ！ ハートが1つ減った！");
         playSpriteState(evolutionSubject, "hurt");
-        if (correctBtn) { correctBtn.style.background = "#004400"; correctBtn.style.borderColor = "#00ff00"; }
 
         updateEvolutionUI();
 
@@ -1662,6 +1666,7 @@ function onTimeUp() {
         updateRaidHeartsUI();
 
         setTimeout(() => {
+            if (!raidActive) return;
             if (raidPlayerHearts <= 0) {
                 alert("💀 あなたは力尽きた…\n他の仲間の活躍を見守ろう！拠点に戻ります。");
                 endBattle();
@@ -1778,10 +1783,17 @@ async function openCameraScreen() {
     if (statusEl) statusEl.innerText = "モデルを読み込んでいます...";
 
     try {
-        await loadTMModelIfNeeded();
+        try {
+            await loadTMModelIfNeeded();
+        } catch (modelErr) {
+            console.error("モデル読み込みエラー:", modelErr);
+            if (statusEl) statusEl.innerText = "⚠️ 認識モデルを読み込めませんでした。model フォルダ内のファイルを確認してください。";
+            return;
+        }
 
-        tmWebcam = new tmImage.Webcam(300, 300, true); // width, height, flip
-        await tmWebcam.setup(); // カメラの使用許可をリクエスト
+        // 校舎など外の景色を撮るので、背面カメラを優先し、左右反転もしない
+        tmWebcam = new tmImage.Webcam(300, 300, false); // width, height, flip
+        await tmWebcam.setup({ facingMode: "environment" }); // カメラの使用許可をリクエスト
         await tmWebcam.play();
 
         if (placeholderEl) placeholderEl.remove();
@@ -1906,28 +1918,79 @@ function escapeHtml(str) {
     return div.innerHTML;
 }
 
-function goToLobby() {
-    showOnlyThisScreen("lobby-screen");
+function raidResetData() {
+    return { status: "waiting", bossHp: RAID_DEFAULT_HP, maxBossHp: RAID_DEFAULT_HP };
+}
+
+function withTimeout(promise, ms) {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms))
+    ]);
+}
+
+// ロビー入室前に raid の状態を点検し、古い状態(前回の残骸)なら初期化する
+async function ensureRaidReady() {
+    const snap = await withTimeout(db.ref("raid").once("value"), 8000);
+    const raid = snap.val() || {};
+    const others = Object.keys(raid.players || {}).filter(id => id !== raidPlayerId);
+    const stale = !raid.status ||
+        (raid.status === "battling" && (others.length === 0 || !(raid.bossHp > 0)));
+    if (stale) await db.ref("raid").update(raidResetData());
+}
+
+function registerRaidPlayer() {
+    const ref = db.ref(`raid/players/${raidPlayerId}`);
+    ref.onDisconnect().remove();
+    ref.set({ name: raidPlayerName, joinedAt: Date.now() });
+}
+
+async function goToLobby() {
     raidPlayerId = getOrCreatePlayerId();
     raidPlayerName = getOrCreatePlayerName();
+    showOnlyThisScreen("lobby-screen");
+    const statusEl = document.getElementById("lobby-status-text");
+    if (statusEl) statusEl.innerText = "サーバーに接続中...";
 
-    const playerRef = db.ref(`raid/players/${raidPlayerId}`);
-    playerRef.set({ name: raidPlayerName, joinedAt: Date.now() });
-    playerRef.onDisconnect().remove();
+    const myToken = ++lobbyEnterToken;
+    try {
+        await ensureRaidReady();
+    } catch (e) {
+        console.error("レイド接続エラー:", e);
+        if (myToken === lobbyEnterToken) {
+            alert("オンラインに接続できませんでした。\nWi-Fiを確認して、もう一度試してください。");
+            backToHub();
+        }
+        return;
+    }
+    if (myToken !== lobbyEnterToken) return; // 接続待ち中に抜けた
+
+    raidActive = true;
+    raidInLobby = true;
+    registerRaidPlayer();
+
+    // 通信が一時的に切れて復帰したとき、自分を参加者に登録し直す
+    db.ref(".info/connected").on("value", snap => {
+        if (!raidActive) return;
+        if (snap.val() === true) {
+            registerRaidPlayer();
+            if (raidInLobby) updateLobbyUI(lastLobbyPlayers);
+        } else if (raidInLobby && statusEl) {
+            statusEl.innerText = "⚠ 接続が切れました。再接続中...";
+        }
+    });
 
     if (!raidPlayersListenerAttached) {
         db.ref("raid/players").on("value", snap => {
-            const players = snap.val() || {};
-            updateLobbyUI(players);
+            lastLobbyPlayers = snap.val() || {};
+            if (raidInLobby) updateLobbyUI(lastLobbyPlayers);
         });
         raidPlayersListenerAttached = true;
     }
 
     if (!raidStatusListenerAttached) {
         db.ref("raid/status").on("value", snap => {
-            if (snap.val() === "battling") {
-                enterRaidBattle();
-            }
+            if (raidInLobby && snap.val() === "battling") enterRaidBattle();
         });
         raidStatusListenerAttached = true;
     }
@@ -1950,38 +2013,43 @@ function updateLobbyUI(players) {
 }
 
 function removeSelfFromRaidPlayers() {
-    if (raidPlayerId) {
-        db.ref(`raid/players/${raidPlayerId}`).remove();
-    }
+    if (!raidPlayerId) return;
+    const ref = db.ref(`raid/players/${raidPlayerId}`);
+    ref.onDisconnect().cancel();
+    ref.remove().then(resetRaidIfEmpty).catch(e => console.error(e));
+}
+
+// 最後の1人が抜けたのに戦闘中のまま残らないよう、誰もいなければ初期化する
+function resetRaidIfEmpty() {
+    return db.ref("raid").once("value").then(snap => {
+        const raid = snap.val() || {};
+        if (raid.status === "battling" && Object.keys(raid.players || {}).length === 0) {
+            return db.ref("raid").update(raidResetData());
+        }
+    });
 }
 
 function detachRaidListeners() {
     db.ref("raid/bossHp").off();
-    if (raidBossHpListenerAttached) raidBossHpListenerAttached = false;
+    db.ref("raid/players").off();
+    db.ref("raid/status").off();
+    db.ref(".info/connected").off();
+    raidBossHpListenerAttached = false;
+    raidPlayersListenerAttached = false;
+    raidStatusListenerAttached = false;
+    raidActive = false;
+    raidInLobby = false;
 }
 
 function leaveLobby() {
-    db.ref("raid/players").off();
-    db.ref("raid/status").off();
-    raidPlayersListenerAttached = false;
-    raidStatusListenerAttached = false;
+    lobbyEnterToken++;
     removeSelfFromRaidPlayers();
     backToHub();
 }
 
 function forceStartRaid() {
-    const raidRef = db.ref("raid");
-    raidRef.transaction(current => {
-        if (!current || current.status !== "battling") {
-            return {
-                status: "battling",
-                bossHp: 100000,
-                maxBossHp: 100000,
-                players: (current && current.players) || {}
-            };
-        }
-        return current;
-    });
+    // status だけを原子的に切り替える(同時に押されても1回だけ開始)
+    db.ref("raid/status").transaction(cur => (cur === "battling" ? undefined : "battling"));
 }
 
 // ==========================================
@@ -1989,6 +2057,7 @@ function forceStartRaid() {
 // ==========================================
 function enterRaidBattle() {
     currentBattleMode = "raid";
+    raidInLobby = false;
     showOnlyThisScreen("battle-screen");
 
     const lv = Math.max(1, characterLevels["国語"].level);
@@ -2078,7 +2147,7 @@ function handleRaidAnswer(selectedIndex) {
         if (correctBtn) { correctBtn.style.background = "#004400"; correctBtn.style.borderColor = "#00ff00"; }
 
         // みんなで共有しているボスHPを実際に削る(トランザクションで安全に減算)
-        db.ref("raid/bossHp").transaction(hp => Math.max(0, (hp || 0) - stats.attack));
+        db.ref("raid/bossHp").transaction(hp => (hp == null ? hp : Math.max(0, hp - stats.attack)));
     } else {
         raidPlayerHearts--;
         flashScreen("wrong");
@@ -2094,6 +2163,7 @@ function handleRaidAnswer(selectedIndex) {
     updateRaidHeartsUI();
 
     setTimeout(() => {
+        if (!raidActive) return;
         if (raidPlayerHearts <= 0) {
             alert("💀 あなたは力尽きた…\n他の仲間の活躍を見守ろう！拠点に戻ります。");
             endBattle();
@@ -2106,24 +2176,17 @@ function handleRaidAnswer(selectedIndex) {
 }
 
 function onRaidVictory() {
+    if (!raidActive) return; // 二重発火防止
+    raidActive = false;
     stopTimer();
-    detachRaidListeners();
     alert("🎉 レイドボス討伐成功！みんなの協力で勝利した！");
-
-    // 次のグループのために、少し待ってからレイドをリセット(誰か1人が実行すればOK)
-    setTimeout(() => {
-        db.ref("raid").set({ status: "waiting", bossHp: 100000, maxBossHp: 100000, players: {} });
-    }, 3000);
-
+    // 全員が抜けた時点で resetRaidIfEmpty が初期化する。取り残しは次のロビー入室時にも掃除される
     removeSelfFromRaidPlayers();
-    showOnlyThisScreen("hub-screen");
-    updateHubUI();
+    backToHub();
 }
 
 function endBattle() {
     if (currentBattleMode === "raid") {
-        db.ref("raid/bossHp").off();
-        raidBossHpListenerAttached = false;
         removeSelfFromRaidPlayers();
     }
     backToHub();
