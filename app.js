@@ -114,24 +114,31 @@ const MOB_POOL = [
     { img: "enemy9.png",  name: "コード・クラーケン" },
     { img: "enemy10.png", name: "くしゃくしゃ答案" }
 ];
-const MOB_COUNT_BY_LEVEL = { 1: 1, 2: 2 };   // 現在レベルごとの雑魚敵の数(ボスの前に出る)
-const MOB_HP_ATTACK_MULTIPLIER = 2;          // 雑魚HP = 攻撃力 × この数(=正解2回で倒せる)
+// 昇格戦で「最後の敵」の前に追加で出す雑魚の数(0 = 1戦につき1体だけ)。増やしたいときは数字を変える
+const MOB_EXTRA_BY_LEVEL = { 1: 0, 2: 0 };
+const MOB_HP_ATTACK_MULTIPLIER = 2;   // 追加で出る雑魚のHP = 攻撃力 × この数
 
 let evolutionWaves = [];
 let evolutionWaveIndex = 0;
 
+// 昇格戦の敵リストを作る。最後の1体は、従来どおりのHP(getEnemyHp)で戦う。
 function buildEvolutionWaves(lv, stats) {
-    const mobCount = MOB_COUNT_BY_LEVEL[lv] !== undefined ? MOB_COUNT_BY_LEVEL[lv] : 1;
+    const extra = MOB_EXTRA_BY_LEVEL[lv] !== undefined ? MOB_EXTRA_BY_LEVEL[lv] : 0;
     const pool = MOB_POOL.slice();
     for (let i = pool.length - 1; i > 0; i--) {          // シャッフル(同じ敵が連続しない)
         const j = Math.floor(Math.random() * (i + 1));
         [pool[i], pool[j]] = [pool[j], pool[i]];
     }
-    const waves = pool.slice(0, mobCount).map(m => ({
-        boss: false, name: m.name, img: m.img, hp: stats.attack * MOB_HP_ATTACK_MULTIPLIER
-    }));
-    waves.push({ boss: true, name: `昇格試験官 (Lv${lv}→${lv + 1})`, img: "raid-boss.png", hp: getEnemyHp(lv) });
-    return waves;
+    const picked = pool.slice(0, extra + 1);
+    return picked.map((m, i) => {
+        const isLast = (i === picked.length - 1);
+        return {
+            boss: isLast,
+            name: m.name,
+            img: m.img,
+            hp: isLast ? getEnemyHp(lv) : stats.attack * MOB_HP_ATTACK_MULTIPLIER
+        };
+    });
 }
 
 function loadEvolutionEnemy(healed) {
@@ -141,12 +148,16 @@ function loadEvolutionEnemy(healed) {
     evolutionBossMaxHp = e.hp;
 
     const bossNameEl = document.getElementById("boss-name");
-    if (bossNameEl) bossNameEl.innerText = `${e.name}（${evolutionWaveIndex + 1}/${evolutionWaves.length}）`;
+    if (bossNameEl) {
+        bossNameEl.innerText = evolutionWaves.length > 1
+            ? `${e.name}（${evolutionWaveIndex + 1}/${evolutionWaves.length}）`
+            : e.name;
+    }
     const bossImg = document.getElementById("boss-img");
     if (bossImg) { bossImg.style.display = "block"; bossImg.src = e.img; }
 
     updateEvolutionUI();
-    showBattleMessage(`${healed ? "💚 ハート回復！ " : ""}${e.boss ? "⚠️" : "⚔️"} ${e.name} が現れた！`);
+    showBattleMessage(`${healed ? "💚 ハート回復！ " : ""}⚔️ ${e.name} が現れた！`);
 }
 
 function getEnemyHp(level) {
@@ -1808,12 +1819,12 @@ function selectChoice(i) {
 // クラス名はTeachable Machineで自分がつけた名前と完全に一致させる必要があります。
 const SCAN_CLASS_TO_SUBJECT = {
     "正門": "国語",
-    "理科室": "物理",
-    "化学実験室": "化学",
-    "図書館": "歴史",
+    "さつき": "物理",
+    "かえで": "化学",
+    "廣池銅像": "歴史",
     "体育館": "数学",
-    "英語教室": "英語",
-    "校庭": "地理"
+    "あすなろ": "英語",
+    "図書館": "地理"
     // "背景" や "その他" のクラスはここに書かなければ自動的に無視されます
 };
 
