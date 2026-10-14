@@ -952,6 +952,10 @@ function renderPartyDisplay(activeSubject) {
     let slots = [activeSubject, ...playerParty.filter(s => s !== activeSubject)];
     slots = slots.slice(0, 4);
 
+    lastActiveHp = null;   // 新しい戦闘の開始。次のHP更新を「満タン」の基準にする
+    const hpFloatEl = document.getElementById("party-slot-0-hpfloat");
+    if (hpFloatEl) hpFloatEl.classList.remove("show");
+
     for (let i = 0; i < 4; i++) {
         const subject = slots[i];
         const slotEl = document.getElementById(`party-slot-${i}`);
@@ -961,8 +965,8 @@ function renderPartyDisplay(activeSubject) {
         if (!slotEl) continue;
 
         if (subject && subjectMeta[subject]) {
+            slotEl.style.display = "flex";
             slotEl.style.opacity = "1";
-            slotEl.style.borderColor = (subject === activeSubject) ? "#66ccff" : "#445";
             if (imgEl) {
                 imgEl.src = getBattleSpriteFile(subject, "normal");
                 imgEl.style.visibility = "visible";
@@ -974,8 +978,7 @@ function renderPartyDisplay(activeSubject) {
             if (nameEl) nameEl.innerText = subjectMeta[subject].name;
             if (barEl) barEl.style.width = "100%"; // 控えメンバーは今のところ常に満タン表示(次段階で連動予定)
         } else {
-            slotEl.style.opacity = "0.35";
-            slotEl.style.borderColor = "#333";
+            slotEl.style.display = "none";   // 空きスロットは表示しない
             if (imgEl) { imgEl.src = ""; imgEl.style.visibility = "hidden"; }
             if (nameEl) nameEl.innerText = "空きスロット";
             if (barEl) barEl.style.width = "0%";
@@ -984,12 +987,40 @@ function renderPartyDisplay(activeSubject) {
 }
 
 // 実際に問題に答えているキャラ(スロット0)のHPバーを更新する
+let lastActiveHp = null;       // 直前のHP(減ったかどうかの判定用)
+let partyHpHideTimer = null;
+
 function updateActivePartyHpBar(current, max) {
     const barEl = document.getElementById("party-slot-0-hpbar");
     if (!barEl) return;
     const pct = max > 0 ? Math.max(0, (current / max) * 100) : 0;
     barEl.style.width = `${pct}%`;
     barEl.style.background = pct <= 25 ? "#ff4444" : (pct <= 50 ? "#ffaa00" : "#33cc66");
+
+    if (lastActiveHp === null) lastActiveHp = max;   // 戦闘開始時は満タンが基準
+    if (current < lastActiveHp) showPartyDamage(lastActiveHp - current);
+    lastActiveHp = current;
+}
+
+// ダメージを受けた時: キャラの上にHPバーを2秒ほど表示し、揺れとダメージ数字を出す
+function showPartyDamage(amount) {
+    const hpFloat = document.getElementById("party-slot-0-hpfloat");
+    if (hpFloat) {
+        hpFloat.classList.add("show");
+        if (partyHpHideTimer) clearTimeout(partyHpHideTimer);
+        partyHpHideTimer = setTimeout(() => hpFloat.classList.remove("show"), 2200);
+    }
+    const wrap = document.getElementById("party-slot-0-wrap");
+    if (wrap) {
+        wrap.classList.remove("hit-shake");
+        void wrap.offsetWidth;                // アニメーションを最初から再生し直す
+        wrap.classList.add("hit-shake");
+        const pop = document.createElement("div");
+        pop.className = "dmg-pop";
+        pop.innerText = `-${amount}`;
+        wrap.appendChild(pop);
+        setTimeout(() => pop.remove(), 900);
+    }
 }
 
 function updateHubUI() {
@@ -1442,6 +1473,7 @@ function startEvolutionBattle() {
 
     evolutionPlayerHearts = stats.hearts;
     evolutionPlayerMaxHearts = stats.hearts;
+    lastActiveHp = null;   // 前回の戦闘のHPを引き継がない
     skillUsed = false;
 
     evolutionWaves = buildEvolutionWaves(lv, stats);
@@ -1676,7 +1708,7 @@ function handleEvolutionAnswer(selectedIndex) {
 // ==========================================
 function startTimer() {
     stopTimer();
-    timeLeft = 15;
+    timeLeft = TIMER_MAX;
     updateTimerUI();
 
     timer = setInterval(() => {
@@ -1694,11 +1726,17 @@ function stopTimer() {
     if (timer) { clearInterval(timer); timer = null; }
 }
 
+const TIMER_MAX = 15;   // 1問の制限時間(秒)。startTimer の初期値と合わせる
+
 function updateTimerUI() {
     const timerEl = document.getElementById("battle-timer");
+    const barEl = document.getElementById("battle-timer-bar");
     if (!timerEl) return;
-    timerEl.innerText = `⏱ ${timeLeft}`;
-    timerEl.style.color = timeLeft <= 5 ? "#ff4444" : "#ffcc00";
+    timerEl.innerText = timeStopActive ? "⏸ 時間停止中" : `⏱ ${timeLeft}`;
+    if (barEl) {
+        barEl.style.width = `${Math.max(0, Math.min(100, (timeLeft / TIMER_MAX) * 100))}%`;
+        barEl.style.background = timeStopActive ? "#33ccff" : (timeLeft <= 5 ? "#ff4444" : "#ffcc00");
+    }
 }
 
 function onTimeUp() {
@@ -1764,6 +1802,7 @@ function useTimeStop() {
     const stopSec = stats.stopSec;
 
     timeStopActive = true;
+    updateTimerUI();
     showBattleMessage(`⏰ 時間停止！ ${stopSec}秒間タイマーが止まる！`);
     setBattlePlayerImg(currentBattleMode === "raid" ? getBattleSpriteFile("国語", "serious") : getBattleSpriteFile(evolutionSubject, "serious"));
 
@@ -1772,6 +1811,7 @@ function useTimeStop() {
 
     setTimeout(() => {
         timeStopActive = false;
+        updateTimerUI();
         showBattleMessage("▶️ 時間が動き出した！");
         setBattlePlayerImg(currentBattleMode === "raid" ? getBattleSpriteFile("国語", "normal") : getBattleSpriteFile(evolutionSubject, "normal"));
     }, stopSec * 1000);
@@ -1819,12 +1859,12 @@ function selectChoice(i) {
 // クラス名はTeachable Machineで自分がつけた名前と完全に一致させる必要があります。
 const SCAN_CLASS_TO_SUBJECT = {
     "正門": "国語",
-    "さつき": "物理",
-    "かえで": "化学",
-    "廣池銅像": "歴史",
+    "理科室": "物理",
+    "化学実験室": "化学",
+    "図書館": "歴史",
     "体育館": "数学",
-    "あすなろ": "英語",
-    "図書館": "地理"
+    "英語教室": "英語",
+    "校庭": "地理"
     // "背景" や "その他" のクラスはここに書かなければ自動的に無視されます
 };
 
@@ -2148,7 +2188,8 @@ async function goToLobby() {
     } catch (e) {
         console.error("レイド接続エラー:", e);
         if (myToken === lobbyEnterToken) {
-            alert("オンラインに接続できませんでした。\nWi-Fiを確認して、もう一度試してください。");
+            const reason = (e && (e.code || e.message)) ? (e.code || e.message) : "不明";
+            alert("オンラインに接続できませんでした。\n(原因: " + reason + ")\nWi-Fiを確認して、もう一度試してください。");
             backToHub();
         }
         return;
@@ -2254,6 +2295,7 @@ function enterRaidBattle() {
     const stats = getPlayerStats(lv);
     raidPlayerHearts = stats.hearts;
     raidPlayerMaxHearts = stats.hearts;
+    lastActiveHp = null;   // 前回の戦闘のHPを引き継がない
 
     const bossNameEl = document.getElementById("boss-name");
     if (bossNameEl) bossNameEl.innerText = "共闘レイドボス";
