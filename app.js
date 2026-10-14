@@ -88,22 +88,87 @@ let timeStopActive = false;
 // ==========================================
 // 💾 セーブ・ロード
 // ==========================================
+// --- ブラウザの保存領域を安全に読み書きするための道具(使えない環境でも落ちないように) ---
+function safeStorageGet(key) {
+    try { return localStorage.getItem(key); } catch (e) { return null; }
+}
+function safeStorageSet(key, value) {
+    try { localStorage.setItem(key, value); return true; }
+    catch (e) { console.error("保存に失敗:", key, e); return false; }
+}
+function safeStorageRemove(key) {
+    try { localStorage.removeItem(key); } catch (e) {}
+}
+
+let saveReady = false;     // 起動時の読み込みが終わるまでは、自動保存で初期データを上書きしない
+let saveWarned = false;
+
+function warnSaveFailed() {
+    if (saveWarned) return;
+    saveWarned = true;
+    alert("⚠️ このブラウザでは進行状況を保存できません。\nプライベートブラウズをやめるか、SafariかChromeで開いてください。");
+}
+
 function saveGame() {
-    localStorage.setItem("characterLevels", JSON.stringify(characterLevels));
+    if (!safeStorageSet("characterLevels", JSON.stringify(characterLevels))) warnSaveFailed();
 }
 
 function loadGame() {
-    const saved = localStorage.getItem("characterLevels");
-    if (saved) {
-        const parsed = JSON.parse(saved);
-        // 保存データを読み込みつつ、新教科は初期値で補完
-        Object.keys(characterLevels).forEach(subject => {
-            if (parsed[subject]) {
-                characterLevels[subject] = parsed[subject];
-            }
-        });
+    const saved = safeStorageGet("characterLevels");
+    if (!saved) return;
+    let parsed;
+    try {
+        parsed = JSON.parse(saved);
+    } catch (e) {
+        console.error("セーブデータを読めませんでした(初期状態で開始します):", e);
+        return;
     }
+    if (!parsed || typeof parsed !== "object") return;
+
+    // 保存データを読み込みつつ、値が壊れていても範囲内に収める(新教科は初期値のまま)
+    Object.keys(characterLevels).forEach(subject => {
+        const p = parsed[subject];
+        if (!p || typeof p !== "object") return;
+        const level = Math.max(0, Math.min(3, parseInt(p.level, 10) || 0));
+        const exp = Math.max(0, parseInt(p.exp, 10) || 0);
+        characterLevels[subject] = { level: level, exp: exp, maxExp: characterLevels[subject].maxExp };
+    });
 }
+
+// 画面を閉じる・アプリを切り替えるときにも、念のため保存する
+function saveAll() {
+    if (!saveReady) return;
+    saveGame();
+    savePlayerParty();
+}
+document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") saveAll();
+});
+window.addEventListener("pagehide", saveAll);
+
+// 起動時のチェック: 保存できる環境か / アプリ内ブラウザでないか / 保存領域を消されにくくする
+function checkSaveEnvironment() {
+    try {
+        localStorage.setItem("__save_test", "1");
+        localStorage.removeItem("__save_test");
+    } catch (e) {
+        warnSaveFailed();
+        return;
+    }
+
+    const ua = navigator.userAgent || "";
+    if (/Line\/|FBAN|FBAV|Instagram|Twitter|MicroMessenger|KAKAOTALK/i.test(ua)) {
+        let warned = false;
+        try { warned = sessionStorage.getItem("inAppWarned") === "1"; } catch (e) {}
+        if (!warned) {
+            alert("⚠️ LINEなどのアプリ内ブラウザだと、進行状況が消えることがあります。\nSafari や Chrome で開くのがおすすめです。");
+            try { sessionStorage.setItem("inAppWarned", "1"); } catch (e) {}
+        }
+    }
+
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+}
+
 // ==========================================
 // ❤️ ステータス取得
 // ==========================================
@@ -888,13 +953,157 @@ function generateRandomRaidQuestion() {
 // ==========================================
 // 🏰 画面切り替え
 // ==========================================
+// ==========================================
+// 🎵 BGM
+//   ・音声ファイルを index.html と同じ場所に置くだけで鳴ります(下の file の名前に合わせる)
+//   ・ファイルが無いシーンは、BGM_FALLBACK で別のシーンの曲を使い、それも無ければ無音になります
+//   ・ブラウザの決まりで、最初に画面をタップするまで音は鳴りません
+// ==========================================
+const BGM_DIR = "";   // フォルダに入れる場合は "bgm/" のように書く(最後に / が必要)
+const BGM_SCENES = {
+    hub:    { file: "bgm_hub.mp3",    volume: 0.5 },   // 拠点・編成・チュートリアル・名前入力・スキャン
+    trial:  { file: "bgm_trial.mp3",  volume: 0.5 },   // キャラ獲得試練
+    battle: { file: "bgm_battle.mp3", volume: 0.5 },   // 昇格戦
+    raid:   { file: "bgm_raid.mp3",   volume: 0.5 }    // レイドのロビー〜レイドバトル
+};
+const BGM_FALLBACK = { trial: "hub", battle: "hub", raid: "battle" };   // 曲が無いときの代わり
+
+let bgmMuted = safeStorageGet("bgmMuted") === "1";
+let bgmUnlocked = false;      // 最初のタップのあとに true
+let bgmWanted = null;         // いま流したいシーン
+let bgmCurrent = null;        // いま実際に流れているシーン
+const bgmAudios = {};
+const bgmMissing = {};        // 読み込みに失敗した(ファイルが無い)シーン
+const bgmFadeTimers = new Map();
+
+function bgmGetAudio(scene) {
+    if (bgmMissing[scene]) return null;
+    if (bgmAudios[scene]) return bgmAudios[scene];
+    const cfg = BGM_SCENES[scene];
+    if (!cfg || !cfg.file) return null;
+    const a = new Audio(BGM_DIR + cfg.file);
+    a.loop = true;
+    a.preload = "auto";
+    a.volume = cfg.volume;
+    a.addEventListener("error", () => {
+        console.warn("BGMを読み込めません:", cfg.file);
+        bgmMissing[scene] = true;
+        delete bgmAudios[scene];
+        if (bgmCurrent === scene) bgmCurrent = null;
+        applyBgm();   // 代わりの曲があればそちらへ
+    });
+    bgmAudios[scene] = a;
+    return a;
+}
+
+// フォールバックをたどって、実際に流すシーンを決める
+function bgmResolve(scene) {
+    let sc = scene;
+    for (let i = 0; sc && i < 4; i++) {
+        if (bgmGetAudio(sc)) return sc;
+        sc = BGM_FALLBACK[sc];
+    }
+    return null;
+}
+
+function bgmFade(audio, target, ms, done) {
+    if (bgmFadeTimers.has(audio)) clearInterval(bgmFadeTimers.get(audio));
+    const from = audio.volume;
+    const steps = Math.max(1, Math.round(ms / 50));
+    let i = 0;
+    const timer = setInterval(() => {
+        i++;
+        try { audio.volume = Math.max(0, Math.min(1, from + (target - from) * (i / steps))); } catch (e) {}   // iPhoneでは音量が変えられず、すぐ切り替わる
+        if (i >= steps) {
+            clearInterval(timer);
+            bgmFadeTimers.delete(audio);
+            if (done) done();
+        }
+    }, 50);
+    bgmFadeTimers.set(audio, timer);
+}
+
+function bgmStopAll(exceptScene) {
+    Object.keys(bgmAudios).forEach(sc => {
+        if (sc === exceptScene) return;
+        const a = bgmAudios[sc];
+        if (a && !a.paused) bgmFade(a, 0, 400, () => { a.pause(); });
+    });
+}
+
+function applyBgm() {
+    const silent = !bgmUnlocked || bgmMuted || document.visibilityState === "hidden" || !bgmWanted;
+    if (silent) {
+        bgmStopAll(null);
+        bgmCurrent = null;
+        return;
+    }
+    const sc = bgmResolve(bgmWanted);
+    bgmStopAll(sc);
+    bgmCurrent = sc;
+    if (!sc) return;
+
+    const a = bgmAudios[sc];
+    const target = BGM_SCENES[sc].volume;
+    if (a.paused) {
+        try { a.volume = 0; } catch (e) {}
+        const p = a.play();
+        if (p && p.catch) p.catch(e => console.warn("BGMの再生を開始できません:", e));
+    }
+    bgmFade(a, target, 600);
+}
+
+function setBgmScene(scene) {
+    bgmWanted = scene;
+    applyBgm();
+}
+
+// 画面ごとに流す曲を決める(showOnlyThisScreen から呼ばれる)
+function updateBgmForScreen(screenId) {
+    let scene = "hub";
+    if (screenId === "trial-screen") scene = "trial";
+    else if (screenId === "lobby-screen") scene = "raid";
+    else if (screenId === "battle-screen") scene = (currentBattleMode === "raid") ? "raid" : "battle";
+    setBgmScene(scene);
+
+    // ミュートボタンは、バトル画面ではタイマーと重なるので隠す
+    const btn = document.getElementById("bgm-toggle-btn");
+    if (btn) btn.style.display = (screenId === "battle-screen") ? "none" : "flex";
+}
+
+function updateBgmButton() {
+    const btn = document.getElementById("bgm-toggle-btn");
+    if (btn) btn.textContent = bgmMuted ? "🔇" : "🔊";
+}
+
+function toggleBgm() {
+    bgmMuted = !bgmMuted;
+    safeStorageSet("bgmMuted", bgmMuted ? "1" : "0");
+    updateBgmButton();
+    // このタップ自体が「ユーザー操作」なので、ここで解放しておく
+    bgmUnlocked = true;
+    applyBgm();
+}
+
+// 最初のタップで音を解放する(自動再生禁止への対応)。iPhoneでは touchend / click が有効
+function bgmUnlockOnce() {
+    if (bgmUnlocked) return;
+    bgmUnlocked = true;
+    ["click", "touchend", "keydown"].forEach(ev => document.removeEventListener(ev, bgmUnlockOnce, true));
+    applyBgm();
+}
+["click", "touchend", "keydown"].forEach(ev => document.addEventListener(ev, bgmUnlockOnce, true));
+
+// 別のアプリに切り替えたら止め、戻ってきたら再開する
+document.addEventListener("visibilitychange", applyBgm);
+
 function showOnlyThisScreen(screenId) {
-    const screens = ["hub-screen", "lobby-screen", "trial-screen", "battle-screen", "tutorial-screen", "camera-screen", "party-screen"];
+    const screens = ["hub-screen", "lobby-screen", "trial-screen", "battle-screen", "tutorial-screen", "camera-screen", "party-screen", "name-screen"];
     screens.forEach(id => {
         const el = document.getElementById(id);
         if (el) {
             if (id === screenId) {
-                el.style.display = (id === "trial-screen" || id === "battle-screen" || id === "camera-screen" || id === "party-screen") ? "flex" : "block";
+                el.style.display = (id === "trial-screen" || id === "battle-screen" || id === "camera-screen" || id === "party-screen" || id === "name-screen") ? "flex" : "block";
             } else {
                 el.style.display = "none";
             }
@@ -902,12 +1111,110 @@ function showOnlyThisScreen(screenId) {
     });
     const fixedArea = document.getElementById("fixed-action-area");
     if (fixedArea) fixedArea.style.display = (screenId === "hub-screen") ? "block" : "none";
+    updateBgmForScreen(screenId);
 }
+// ==========================================
+// 🌟 主人公(プレイヤー)の名前
+// ==========================================
+const PLAYER_NAME_MAX = 8;
+let playerNameMemory = "";   // 保存できない環境でも、そのセッション中は名前を覚えておく
+let nameEditMode = false;    // true = 名前の変更(すでに名前がある) / false = 初回入力
+
+function getPlayerName() {
+    return safeStorageGet("playerName") || playerNameMemory || "";
+}
+
+// メッセージ用の呼び名(名前が無ければ「あなた」)
+function playerCallName() {
+    const n = getPlayerName();
+    return n ? `${n}さん` : "あなた";
+}
+
+function sanitizePlayerName(raw) {
+    const cleaned = String(raw || "")
+        .replace(/[\u0000-\u001f\u007f<>]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    return Array.from(cleaned).slice(0, PLAYER_NAME_MAX).join("");   // 絵文字も1文字として数える
+}
+
+function updatePlayerNameLabel() {
+    const el = document.getElementById("player-name-label");
+    if (!el) return;
+    const n = getPlayerName();
+    el.textContent = n ? `👤 ${n} ✏️` : "";
+    el.style.display = n ? "inline-block" : "none";
+}
+
+function showNameEntry(isEdit) {
+    nameEditMode = !!isEdit;
+    showOnlyThisScreen("name-screen");
+
+    const input = document.getElementById("player-name-input");
+    const errEl = document.getElementById("name-error");
+    const confirmBtn = document.getElementById("name-confirm-btn");
+    const cancelBtn = document.getElementById("name-cancel-btn");
+    const titleEl = document.getElementById("name-screen-title");
+
+    if (titleEl) titleEl.textContent = isEdit ? "名前を変更する" : "あなたの名前は？";
+    if (confirmBtn) confirmBtn.textContent = isEdit ? "この名前に変更する" : "この名前で始める";
+    if (cancelBtn) cancelBtn.style.display = isEdit ? "block" : "none";
+    if (errEl) errEl.textContent = "";
+    if (input) {
+        input.value = isEdit ? getPlayerName() : "";
+        setTimeout(() => { try { input.focus(); } catch (e) {} }, 150);
+    }
+}
+
+function confirmPlayerName() {
+    const input = document.getElementById("player-name-input");
+    const errEl = document.getElementById("name-error");
+    const name = sanitizePlayerName(input ? input.value : "");
+    if (!name) {
+        if (errEl) errEl.textContent = "名前を入力してください";
+        return;
+    }
+    playerNameMemory = name;
+    if (!safeStorageSet("playerName", name)) warnSaveFailed();
+    showOnlyThisScreen("hub-screen");
+    updateHubUI();
+}
+
+function cancelNameEdit() {
+    showOnlyThisScreen("hub-screen");
+    updateHubUI();
+}
+
+function openNameEdit() {
+    showNameEntry(true);
+}
+
+// チュートリアルの終わり: 名前が未登録なら入力画面へ、登録済みならハブへ
+function finishTutorial() {
+    if (getPlayerName()) {
+        showOnlyThisScreen("hub-screen");
+        updateHubUI();
+    } else {
+        showNameEntry(false);
+    }
+}
+
 // --- 🎏 パーティ編成システム(最大4体) ---
-let playerParty = JSON.parse(localStorage.getItem("playerParty") || "[]");
+function loadPlayerParty() {
+    try {
+        const arr = JSON.parse(safeStorageGet("playerParty") || "[]");
+        if (!Array.isArray(arr)) return [];
+        // 存在する教科だけ・重複なし・最大4体
+        return arr.filter((sub, i) => subjectMeta[sub] && arr.indexOf(sub) === i).slice(0, 4);
+    } catch (e) {
+        console.error("パーティのセーブデータを読めませんでした:", e);
+        return [];
+    }
+}
+let playerParty = loadPlayerParty();
 
 function savePlayerParty() {
-    localStorage.setItem("playerParty", JSON.stringify(playerParty));
+    safeStorageSet("playerParty", JSON.stringify(playerParty));
 }
 
 function togglePartyMember(subject) {
@@ -1058,6 +1365,7 @@ function showPartyDamage(amount) {
 }
 
 function updateHubUI() {
+    updatePlayerNameLabel();
     const partyBadge = document.getElementById("party-count-badge");
     if (partyBadge) partyBadge.innerText = playerParty.length;
 
@@ -1480,13 +1788,13 @@ function selectTrialChoice(selectedIndex) {
                         savePlayerParty();
                         partyMsg = "\nパーティに自動で加わりました！";
                     }
-                    alert(`🎉 合格！10問中 ${trialCorrectCount} 問正解！\n${charName}が仲間になりました！${partyMsg}`);
+                    alert(`🎉 ${playerCallName()}、合格！10問中 ${trialCorrectCount} 問正解！\n${charName}が仲間になりました！${partyMsg}`);
                 } else {
                     characterLevels[evolutionSubject].level++;
-                    alert(`🎉 合格！10問中 ${trialCorrectCount} 問正解！\nLv.${characterLevels[evolutionSubject].level} にアップ！`);
+                    alert(`🎉 ${playerCallName()}、合格！10問中 ${trialCorrectCount} 問正解！\nLv.${characterLevels[evolutionSubject].level} にアップ！`);
                 }
                 characterLevels[evolutionSubject].exp = 0;
-                //saveGame();
+                saveGame();
             } else {
                 alert(`💀 不合格...\n正解数が ${trialCorrectCount} 問でした。合格には8問以上の正解が必要です。`);
             }
@@ -1718,7 +2026,7 @@ function handleEvolutionAnswer(selectedIndex) {
             // 勝利
             characterLevels[evolutionSubject].level++;
             saveGame();
-            alert(`🎉 昇格成功！\nLv.${characterLevels[evolutionSubject].level} になりました！`);
+            alert(`🎉 昇格成功！おめでとう、${playerCallName()}！\nLv.${characterLevels[evolutionSubject].level} になりました！`);
             backToHub();
         } else if (evolutionPlayerHearts <= 0) {
             // 敗北
@@ -2151,23 +2459,25 @@ function backToHub() {
 // 🔥 オンラインレイド：ロビー
 // ==========================================
 function getOrCreatePlayerId() {
-    let id = localStorage.getItem("raidPlayerId");
+    let id = safeStorageGet("raidPlayerId");
     if (!id) {
         id = "p_" + Math.random().toString(36).slice(2, 10);
-        localStorage.setItem("raidPlayerId", id);
+        safeStorageSet("raidPlayerId", id);
     }
     return id;
 }
 
 function getOrCreatePlayerName() {
-    let name = localStorage.getItem("raidPlayerName");
+    const chosen = getPlayerName();      // 主人公の名前があれば、それをレイドでも使う
+    if (chosen) return chosen;
+    let name = safeStorageGet("raidPlayerName");
     if (!name) {
         const adjectives = ["勇敢な", "ねむい", "元気な", "謎の", "伝説の", "ふらふらな"];
         const nouns = ["冒険者", "先輩", "生徒", "旅人", "戦士"];
         name = adjectives[Math.floor(Math.random() * adjectives.length)]
              + nouns[Math.floor(Math.random() * nouns.length)]
              + Math.floor(Math.random() * 900 + 100);
-        localStorage.setItem("raidPlayerName", name);
+        safeStorageSet("raidPlayerName", name);
     }
     return name;
 }
@@ -2448,7 +2758,7 @@ function onRaidVictory() {
     if (!raidActive) return; // 二重発火防止
     raidActive = false;
     stopTimer();
-    alert("🎉 レイドボス討伐成功！みんなの協力で勝利した！");
+    alert(`🎉 レイドボス討伐成功！みんなの協力で勝利した！\nナイスファイト、${playerCallName()}！`);
     // 全員が抜けた時点で resetRaidIfEmpty が初期化する。取り残しは次のロビー入室時にも掃除される
     removeSelfFromRaidPlayers();
     backToHub();
@@ -2572,8 +2882,7 @@ function tutorialNext() {
         tutorialCurrentPage++;
         renderTutorialPage();
     } else {
-        showOnlyThisScreen("hub-screen");
-        updateHubUI();
+        finishTutorial();
     }
 }
 
@@ -2585,14 +2894,41 @@ function tutorialPrev() {
 }
 function initGame() {
     console.log("initGame開始");
+
+    // ?reset=1 を付けて開くと、セーブデータを消して最初から始められる(テスト・展示用)
+    try {
+        if (new URLSearchParams(location.search).get("reset") === "1") {
+            ["characterLevels", "playerParty", "tutorialSeen", "playerName"].forEach(safeStorageRemove);
+            playerNameMemory = "";
+            history.replaceState(null, "", location.pathname);
+            alert("セーブデータを消去しました。最初から始めます。");
+        }
+    } catch (e) {}
+
+    checkSaveEnvironment();
     loadGame();
+    playerParty = loadPlayerParty();
+
+    // 修復: パーティにいるのに未開放になっているキャラは、獲得済みとして扱う
+    // (以前の版で、獲得したのに保存されなかったデータを救うため)
+    let repaired = false;
+    playerParty.forEach(sub => {
+        if (characterLevels[sub] && characterLevels[sub].level === 0) {
+            characterLevels[sub].level = 1;
+            repaired = true;
+        }
+    });
+
+    saveReady = true;
+    updateBgmButton();
+    if (repaired) saveGame();
     console.log("characterLevels:", JSON.stringify(characterLevels));
-    const seen = localStorage.getItem("tutorialSeen");
+
+    const seen = safeStorageGet("tutorialSeen");
     if (seen) {
-        showOnlyThisScreen("hub-screen");
-        updateHubUI();
+        finishTutorial();
     } else {
-        localStorage.setItem("tutorialSeen", "true");
+        safeStorageSet("tutorialSeen", "true");
         showTutorial();
     }
 }

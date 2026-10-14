@@ -32,6 +32,7 @@
             <header style="text-align: center; margin-bottom: 15px;">
                 <h2 style="margin: 0; color: #ffcc00; font-size: 20px;">異世界知識の神殿（学校）</h2>
                 <div class="sub-title" style="font-size: 12px; color: #aaa;">仲間を集めてレイドボスに挑め！</div>
+                <div id="player-name-label" onclick="openNameEdit()" style="display:none; margin-top:8px; padding:4px 12px; font-size:12px; color:#ffcc00; background:rgba(0,0,0,0.45); border:1px solid rgba(255,204,0,0.5); border-radius:14px; cursor:pointer;"></div>
             </header>
 
             <div id="character-grid">
@@ -279,6 +280,22 @@
 
             </div>
 
+        </div>
+
+        <!-- 🔊 BGMのオン/オフ(バトル画面以外で右上に表示) -->
+        <button id="bgm-toggle-btn" onclick="toggleBgm()" aria-label="BGMのオン/オフ" style="position:absolute; top:8px; right:8px; z-index:50; width:34px; height:34px; border-radius:50%; border:1px solid rgba(255,255,255,0.35); background:rgba(0,0,0,0.55); color:#fff; font-size:16px; line-height:1; display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0;">🔊</button>
+
+        <!-- 🌟 主人公の名前入力画面(チュートリアルのあとに表示) -->
+        <div id="name-screen" style="display:none; height:100%; box-sizing:border-box; background:radial-gradient(circle at 50% 30%, #2a2350 0%, #12121c 70%); flex-direction:column; justify-content:center; align-items:center; padding:30px; text-align:center;">
+            <div style="font-size:44px; margin-bottom:8px;">🌟</div>
+            <h2 id="name-screen-title" style="margin:0 0 8px 0; color:#ffcc00; font-size:22px;">あなたの名前は？</h2>
+            <div style="font-size:12px; color:#aab; margin-bottom:24px; line-height:1.7;">この世界の主人公は、あなたです。<br>名前を決めて、冒険を始めましょう。</div>
+            <input id="player-name-input" type="text" maxlength="8" placeholder="なまえ（8文字まで）" autocomplete="off" autocapitalize="off" spellcheck="false"
+                   onkeydown="if(event.key==='Enter'){confirmPlayerName();}"
+                   style="width:100%; max-width:280px; padding:14px; font-size:18px; text-align:center; border-radius:10px; border:2px solid #ffcc00; background:#1a1a24; color:#fff; box-sizing:border-box; outline:none;">
+            <div id="name-error" style="min-height:18px; color:#ff6666; font-size:12px; margin:8px 0 14px 0;"></div>
+            <button id="name-confirm-btn" onclick="confirmPlayerName()" style="width:100%; max-width:280px; padding:14px; background:linear-gradient(135deg, #ff9900, #ff5500); color:#fff; border:none; border-radius:30px; font-size:15px; font-weight:bold; cursor:pointer; box-shadow:0 4px 12px rgba(255,120,0,0.4);">この名前で始める</button>
+            <button id="name-cancel-btn" onclick="cancelNameEdit()" style="display:none; width:100%; max-width:280px; margin-top:10px; padding:12px; background:#333; color:#bbb; border:1px solid #555; border-radius:30px; font-size:13px; cursor:pointer;">やめる</button>
         </div>
 
         <div id="tutorial-screen" style="height:100%; box-sizing:border-box; background:#1a1a1a; display:flex; flex-direction:column; padding:20px;">
