@@ -127,7 +127,7 @@
                 <h2 style="margin:0; color:#a855f7; font-size:18px;">🎏 パーティ編成</h2>
                 <div style="font-size:12px; color:#aaa; margin-top:4px;">バトルに連れていくキャラを最大4体選ぼう(<span id="party-select-count">0 / 4</span>)</div>
             </header>
-            <div id="party-select-list" style="flex:1; overflow-y:auto; margin-bottom:12px;"></div>
+            <div id="party-select-list" style="flex:1; overflow-y:auto; margin-bottom:12px; display:grid; grid-template-columns:repeat(2, 1fr); gap:15px; align-content:start; padding:4px;"></div>
             <button onclick="closePartyScreen()" style="width:100%; padding:12px; background:linear-gradient(135deg, #a855f7, #6d28d9); color:#fff; border:none; border-radius:8px; font-size:14px; font-weight:bold; cursor:pointer;">決定して拠点に戻る</button>
         </div>
 
@@ -196,46 +196,39 @@
 
         <div id="battle-screen" style="height:100%; box-sizing:border-box; overflow:hidden; display:flex; flex-direction:column; padding:10px; background-image: linear-gradient(rgba(10,10,20,0.55), rgba(10,10,20,0.55)), url('classroom_bg.png'); background-size: cover; background-position: center;">
 
-            <div style="display:flex; gap:10px; height:260px; flex-shrink:0;">
+            <!-- ⚔️ バトルフィールド(味方=左 / 敵=右)。枠なし・空いている高さをすべて使う -->
+            <div id="battlefield">
 
-                <!-- 🎏 味方パーティ表示エリア(最大4体・縦並び) -->
-                <div id="party-display-area" style="flex:1.1; display:flex; flex-direction:column; gap:4px; overflow:hidden;">
-                    <div class="party-slot" id="party-slot-0" style="flex:1; display:flex; align-items:center; gap:6px; background:#223; border:2px solid #66ccff; border-radius:8px; padding:4px 6px;">
-                        <img class="party-slot-img" id="party-slot-0-img" src="yuzuki_normal.png" style="width:38px; height:38px; object-fit:contain; flex-shrink:0;" onerror="this.style.visibility='hidden'">
-                        <div id="party-slot-0-sprite" style="display:none; width:38px; height:38px; flex-shrink:0;"></div>
-                        <div style="flex:1; min-width:0;">
-                            <div class="party-slot-name" id="party-slot-0-name" style="font-size:10px; font-weight:bold; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">紫鳴 結月</div>
-                            <div style="background:#333; border-radius:4px; height:7px; margin-top:2px; overflow:hidden;">
-                                <div class="party-slot-hpbar" id="party-slot-0-hpbar" style="background:#33cc66; height:7px; width:100%; transition:width 0.3s;"></div>
-                            </div>
+                <!-- 🎏 味方パーティ(最大4体・縦並び)。HPバーはダメージを受けた時だけキャラの上に出る -->
+                <div id="party-display-area">
+                    <div class="party-slot" id="party-slot-0">
+                        <div class="party-char-wrap" id="party-slot-0-wrap">
+                            <div class="party-hp-float" id="party-slot-0-hpfloat"><div class="party-hp-track"><div class="party-slot-hpbar" id="party-slot-0-hpbar"></div></div></div>
+                            <img class="party-slot-img" id="party-slot-0-img" src="yuzuki_normal.png" onerror="this.style.visibility='hidden'">
+                        <div class="party-slot-sprite" id="party-slot-0-sprite" style="display:none;"></div>
                         </div>
+                        <div class="party-slot-name" id="party-slot-0-name">紫鳴 結月</div>
                     </div>
-                    <div class="party-slot" id="party-slot-1" style="flex:1; display:flex; align-items:center; gap:6px; background:#223; border:2px solid #445; border-radius:8px; padding:4px 6px; opacity:0.5;">
-                        <img class="party-slot-img" id="party-slot-1-img" src="" style="width:38px; height:38px; object-fit:contain; flex-shrink:0;" onerror="this.style.visibility='hidden'">
-                        <div style="flex:1; min-width:0;">
-                            <div class="party-slot-name" id="party-slot-1-name" style="font-size:10px; font-weight:bold; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">空きスロット</div>
-                            <div style="background:#333; border-radius:4px; height:7px; margin-top:2px; overflow:hidden;">
-                                <div class="party-slot-hpbar" id="party-slot-1-hpbar" style="background:#33cc66; height:7px; width:100%; transition:width 0.3s;"></div>
-                            </div>
+                    <div class="party-slot" id="party-slot-1" style="display:none;">
+                        <div class="party-char-wrap" id="party-slot-1-wrap">
+                            <div class="party-hp-float" id="party-slot-1-hpfloat"><div class="party-hp-track"><div class="party-slot-hpbar" id="party-slot-1-hpbar"></div></div></div>
+                            <img class="party-slot-img" id="party-slot-1-img" src="" onerror="this.style.visibility='hidden'">
                         </div>
+                        <div class="party-slot-name" id="party-slot-1-name">空きスロット</div>
                     </div>
-                    <div class="party-slot" id="party-slot-2" style="flex:1; display:flex; align-items:center; gap:6px; background:#223; border:2px solid #445; border-radius:8px; padding:4px 6px; opacity:0.5;">
-                        <img class="party-slot-img" id="party-slot-2-img" src="" style="width:38px; height:38px; object-fit:contain; flex-shrink:0;" onerror="this.style.visibility='hidden'">
-                        <div style="flex:1; min-width:0;">
-                            <div class="party-slot-name" id="party-slot-2-name" style="font-size:10px; font-weight:bold; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">空きスロット</div>
-                            <div style="background:#333; border-radius:4px; height:7px; margin-top:2px; overflow:hidden;">
-                                <div class="party-slot-hpbar" id="party-slot-2-hpbar" style="background:#33cc66; height:7px; width:100%; transition:width 0.3s;"></div>
-                            </div>
+                    <div class="party-slot" id="party-slot-2" style="display:none;">
+                        <div class="party-char-wrap" id="party-slot-2-wrap">
+                            <div class="party-hp-float" id="party-slot-2-hpfloat"><div class="party-hp-track"><div class="party-slot-hpbar" id="party-slot-2-hpbar"></div></div></div>
+                            <img class="party-slot-img" id="party-slot-2-img" src="" onerror="this.style.visibility='hidden'">
                         </div>
+                        <div class="party-slot-name" id="party-slot-2-name">空きスロット</div>
                     </div>
-                    <div class="party-slot" id="party-slot-3" style="flex:1; display:flex; align-items:center; gap:6px; background:#223; border:2px solid #445; border-radius:8px; padding:4px 6px; opacity:0.5;">
-                        <img class="party-slot-img" id="party-slot-3-img" src="" style="width:38px; height:38px; object-fit:contain; flex-shrink:0;" onerror="this.style.visibility='hidden'">
-                        <div style="flex:1; min-width:0;">
-                            <div class="party-slot-name" id="party-slot-3-name" style="font-size:10px; font-weight:bold; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">空きスロット</div>
-                            <div style="background:#333; border-radius:4px; height:7px; margin-top:2px; overflow:hidden;">
-                                <div class="party-slot-hpbar" id="party-slot-3-hpbar" style="background:#33cc66; height:7px; width:100%; transition:width 0.3s;"></div>
-                            </div>
+                    <div class="party-slot" id="party-slot-3" style="display:none;">
+                        <div class="party-char-wrap" id="party-slot-3-wrap">
+                            <div class="party-hp-float" id="party-slot-3-hpfloat"><div class="party-hp-track"><div class="party-slot-hpbar" id="party-slot-3-hpbar"></div></div></div>
+                            <img class="party-slot-img" id="party-slot-3-img" src="" onerror="this.style.visibility='hidden'">
                         </div>
+                        <div class="party-slot-name" id="party-slot-3-name">空きスロット</div>
                     </div>
                     <!-- 互換用(既存JSから参照される非表示要素) -->
                     <img id="battle-player-img" src="yuzuki_normal.png" style="display:none;">
@@ -243,31 +236,32 @@
                     <div id="player-hearts" style="display:none;"></div>
                 </div>
 
-                <div style="flex:1; background:#411; border:2px solid #ff4444; border-radius:10px; text-align:center; padding:8px;">
-                    <img id="boss-img" src="raid-boss.png"
-                         style="width:100%; height:180px; object-fit:contain;"
-                         onerror="this.style.display='none'">
-                    <div id="boss-name" style="font-weight:bold; font-size:12px;">レイドボス</div>
-                    <div style="font-size:11px;">HP: <span id="boss-hp">500</span></div>
-                    <div style="background:#333; border-radius:4px; height:8px; margin-top:4px;">
+                <!-- 👾 敵エリア(タイマーは敵の上に表示) -->
+                <div id="enemy-area">
+                    <div id="battle-timer-wrap">
+                        <div id="battle-timer-bar"></div>
+                        <div id="battle-timer">⏱ 15</div>
+                    </div>
+                    <img id="boss-img" src="raid-boss.png" onerror="this.style.display='none'">
+                    <div id="boss-name">レイドボス</div>
+                    <div style="font-size:12px;">HP: <span id="boss-hp">500</span></div>
+                    <div style="background:#333; border-radius:4px; height:8px; width:100%; margin-top:4px;">
                         <div id="boss-hp-bar" style="background:#ff4444; height:8px; border-radius:4px; width:100%; transition:width 0.3s;"></div>
                     </div>
                 </div>
 
-            </div>
+                <!-- 💬 メッセージはフィールドの下に重ねて表示 -->
+                <div id="battle-message"></div>
 
-            <div style="flex:1; display:flex; flex-direction:column; justify-content:center; align-items:center;">
-                <div id="battle-timer" style="font-size:24px; font-weight:bold; color:#ffcc00;">⏱ 15</div>
-                <div id="battle-message" style="font-size:13px; color:#fff; opacity:0; transition:opacity 0.3s; text-align:center; margin-top:8px;"></div>
             </div>
 
             <div style="flex-shrink:0;">
 
                 <div style="display:flex; gap:8px; justify-content:center; margin-bottom:8px;">
-                    <button id="skill-timestop-btn" class="skill-btn" onclick="useTimeStop()">⏰ 時間停止 (3秒)</button>
-                    <button class="skill-btn" disabled style="opacity:0.4;">🔥 スキル2</button>
-                    <button class="skill-btn" disabled style="opacity:0.4;">⚡ スキル3</button>
-                    <button class="skill-btn" disabled style="opacity:0.4;">💎 スキル4</button>
+                    <button id="skill-timestop-btn" class="skill-btn" onclick="useTimeStop()" disabled style="opacity:0.4;">—</button>
+                    <button class="skill-btn" disabled style="opacity:0.4;">—</button>
+                    <button class="skill-btn" disabled style="opacity:0.4;">—</button>
+                    <button class="skill-btn" disabled style="opacity:0.4;">—</button>
                 </div>
 
                 <div style="background:#222; border:2px solid white; border-radius:10px; padding:12px; min-height:70px; display:flex; justify-content:center; align-items:center; margin-bottom:8px;">

@@ -62,6 +62,24 @@ let evolutionPlayerMaxHearts = 5;
 let evolutionQuestion = null;
 let skillUsed = false;
 
+// ⚙️ スキルのオン/オフ。false の間はスキル欄だけ残して中身は空になる(戻すときは true に)
+const SKILLS_ENABLED = false;
+
+// バトル開始時にスキル欄の表示を整える
+function setupSkillBar(stats) {
+    const btn = document.getElementById("skill-timestop-btn");
+    if (!btn) return;
+    if (SKILLS_ENABLED) {
+        btn.disabled = false;
+        btn.style.opacity = "1";
+        btn.innerText = `⏰ 時間停止 (${stats.stopSec}秒)`;
+    } else {
+        btn.disabled = true;
+        btn.style.opacity = "0.4";
+        btn.innerText = "—";
+    }
+}
+
 // --- タイマー ---
 let timer = null;
 let timeLeft = 15;
@@ -912,24 +930,40 @@ function renderPartyScreen() {
     if (!listEl) return;
     listEl.innerHTML = "";
 
+    // ハブ(試練)画面のキャラカードと同じデザインで並べる
     Object.keys(subjectMeta).forEach(subject => {
         const data = characterLevels[subject];
         const meta = subjectMeta[subject];
         const unlocked = data && data.level > 0;
         const selected = playerParty.includes(subject);
 
-        const row = document.createElement("div");
-        row.style.cssText = `display:flex; align-items:center; gap:10px; padding:8px; margin-bottom:6px; border-radius:8px; background:${selected ? "rgba(0,198,255,0.15)" : "rgba(255,255,255,0.04)"}; border:2px solid ${selected ? "#00c6ff" : "#333"}; ${unlocked ? "cursor:pointer;" : "opacity:0.4;"}`;
-        row.innerHTML = `
-            <div style="font-size:22px;">${meta.emoji}</div>
-            <div style="flex:1;">
-                <div style="font-size:13px; font-weight:bold; color:#fff;">${meta.name}</div>
-                <div style="font-size:10px; color:#aaa;">${subject}${unlocked ? "" : "（未開放）"}</div>
+        // 名前はハブのカードに書いてある表記をそのまま使う
+        const hubNameEl = document.querySelector(`#card-${meta.cardId} .char-name`);
+        const displayName = hubNameEl ? hubNameEl.innerText : `${meta.name} (${subject})`;
+
+        const badgeText = !unlocked ? "未開放" : (data.level >= 3 ? "Lv.3 (MAX)" : `Lv.${data.level}`);
+        const badgeBg = !unlocked ? "#777" : (data.level >= 3 ? "#ff1177" : "#0077ff");
+        const noteText = !unlocked ? "🔒 試練でキャラを獲得しよう" : (selected ? "✅ 編成中" : "タップで編成");
+        const noteColor = selected ? "#00ffcc" : "#8892b0";
+
+        const card = document.createElement("div");
+        card.className = unlocked ? "char-card unlocked" : "char-card locked";
+        if (selected) {
+            card.style.cssText = "border:2px solid #00ffcc !important; box-shadow:0 0 16px rgba(0,255,204,0.55) !important;";
+        }
+        if (!unlocked) card.style.cursor = "not-allowed";
+
+        card.innerHTML = `
+            <div class="status-badge" style="background:${badgeBg};">${badgeText}</div>
+            <div class="char-img-container">
+                <img src="${getCharImgFile(subject, "normal")}" alt="${subject}" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                <div class="fallback-avatar" style="display:none; font-size:40px;">${meta.emoji}</div>
             </div>
-            <div style="font-size:12px; color:${selected ? "#00ffcc" : "#666"};">${selected ? "✅ 編成中" : ""}</div>
+            <div class="char-name">${displayName}</div>
+            <div style="font-size:11px; margin-top:6px; font-weight:${selected ? "bold" : "normal"}; color:${noteColor};">${noteText}</div>
         `;
-        if (unlocked) row.onclick = () => togglePartyMember(subject);
-        listEl.appendChild(row);
+        if (unlocked) card.onclick = () => togglePartyMember(subject);
+        listEl.appendChild(card);
     });
 
     const countEl = document.getElementById("party-select-count");
@@ -1027,11 +1061,11 @@ function updateHubUI() {
     const partyBadge = document.getElementById("party-count-badge");
     if (partyBadge) partyBadge.innerText = playerParty.length;
 
+    // レイドボタン: どれか1人でも仲間(解放済み)になっていれば挑戦できる
     const raidBtn = document.getElementById("raid-start-btn");
-    const kokugoData = characterLevels["国語"];
-
-    if (raidBtn && kokugoData) {
-        if (kokugoData.level > 0) {
+    if (raidBtn) {
+        const hasAnyCharacter = Object.keys(subjectMeta).some(sub => characterLevels[sub] && characterLevels[sub].level > 0);
+        if (hasAnyCharacter) {
             raidBtn.disabled = false;
             raidBtn.style.background = "linear-gradient(135deg, #ff9900, #ff5500)";
             raidBtn.style.color = "#fff";
@@ -1044,7 +1078,7 @@ function updateHubUI() {
             raidBtn.style.color = "#777";
             raidBtn.style.border = "2px solid #555";
             raidBtn.style.cursor = "not-allowed";
-            raidBtn.innerText = "🔒 レイドボスに挑む (国語の解放が必要)";
+            raidBtn.innerText = "🔒 レイドボスに挑む (キャラを1人仲間にすると解放)";
         }
     }
 
@@ -1067,7 +1101,7 @@ function updateHubUI() {
         } else if (data.level >= 3) {
             if (badge) { badge.innerText = "Lv.3 (MAX)"; badge.style.background = "#ff1177"; }
             if (bar) bar.style.width = "100%";
-            if (txt) txt.innerText = "✨ レベル最大 / スキル:時間停止(5秒)";
+            if (txt) txt.innerText = SKILLS_ENABLED ? "✨ レベル最大 / スキル:時間停止(5秒)" : "✨ レベル最大";
             card.className = "char-card unlocked";
         } else {
             if (badge) { badge.innerText = `Lv.${data.level}`; badge.style.background = "#0077ff"; }
@@ -1480,12 +1514,7 @@ function startEvolutionBattle() {
     evolutionWaveIndex = 0;
     loadEvolutionEnemy();
 
-    const skillBtn = document.getElementById("skill-timestop-btn");
-    if (skillBtn) {
-        skillBtn.disabled = false;
-        skillBtn.style.opacity = "1";
-        skillBtn.innerText = `⏰ 時間停止 (${stats.stopSec}秒)`;
-    }
+    setupSkillBar(stats);
 
     updateEvolutionUI();
     setBattleCharacterDisplay(evolutionSubject);
@@ -1763,7 +1792,7 @@ function onTimeUp() {
         raidPlayerHearts--;
         flashScreen("wrong");
         showBattleMessage("⌛ 時間切れ！ ハートが1つ減った！");
-        playSpriteState("国語", "hurt");
+        playSpriteState(raidFighter, "hurt");
 
         for (let i = 0; i < 4; i++) {
             const btn = document.getElementById("choice" + i);
@@ -1780,7 +1809,7 @@ function onTimeUp() {
                 alert("💀 あなたは力尽きた…\n他の仲間の活躍を見守ろう！拠点に戻ります。");
                 endBattle();
             } else {
-                playSpriteState("国語", "idle");
+                playSpriteState(raidFighter, "idle");
                 generateRaidQuestion();
                 startTimer();
             }
@@ -1792,11 +1821,12 @@ function onTimeUp() {
 // ⏰ 時間停止スキル
 // ==========================================
 function useTimeStop() {
+    if (!SKILLS_ENABLED) return;
     if (skillUsed) return;
     skillUsed = true;
 
     const lv = currentBattleMode === "raid"
-        ? Math.max(1, characterLevels["国語"].level)
+        ? Math.max(1, characterLevels[raidFighter].level)
         : (characterLevels[evolutionSubject] ? characterLevels[evolutionSubject].level : 1);
     const stats = getPlayerStats(lv);
     const stopSec = stats.stopSec;
@@ -1804,7 +1834,7 @@ function useTimeStop() {
     timeStopActive = true;
     updateTimerUI();
     showBattleMessage(`⏰ 時間停止！ ${stopSec}秒間タイマーが止まる！`);
-    setBattlePlayerImg(currentBattleMode === "raid" ? getBattleSpriteFile("国語", "serious") : getBattleSpriteFile(evolutionSubject, "serious"));
+    setBattlePlayerImg(currentBattleMode === "raid" ? getBattleSpriteFile(raidFighter, "serious") : getBattleSpriteFile(evolutionSubject, "serious"));
 
     const skillBtn = document.getElementById("skill-timestop-btn");
     if (skillBtn) { skillBtn.disabled = true; skillBtn.style.opacity = "0.4"; }
@@ -1813,7 +1843,7 @@ function useTimeStop() {
         timeStopActive = false;
         updateTimerUI();
         showBattleMessage("▶️ 時間が動き出した！");
-        setBattlePlayerImg(currentBattleMode === "raid" ? getBattleSpriteFile("国語", "normal") : getBattleSpriteFile(evolutionSubject, "normal"));
+        setBattlePlayerImg(currentBattleMode === "raid" ? getBattleSpriteFile(raidFighter, "normal") : getBattleSpriteFile(evolutionSubject, "normal"));
     }, stopSec * 1000);
 }
 
@@ -2286,12 +2316,24 @@ function forceStartRaid() {
 // ==========================================
 // 🔥 オンラインレイド：バトル本体
 // ==========================================
+let raidFighter = "国語";   // レイドで実際に戦うキャラ(enterRaidBattle で決まる)
+
+// パーティの先頭(解放済み) → 解放済みの誰か → 誰もいなければ結月(Lv1相当)の順で選ぶ
+function getRaidFighter() {
+    const unlocked = sub => characterLevels[sub] && characterLevels[sub].level > 0;
+    const fromParty = playerParty.find(unlocked);
+    if (fromParty) return fromParty;
+    const anyone = Object.keys(subjectMeta).find(unlocked);
+    return anyone || "国語";
+}
+
 function enterRaidBattle() {
+    raidFighter = getRaidFighter();
     currentBattleMode = "raid";
     raidInLobby = false;
     showOnlyThisScreen("battle-screen");
 
-    const lv = Math.max(1, characterLevels["国語"].level);
+    const lv = Math.max(1, characterLevels[raidFighter].level);
     const stats = getPlayerStats(lv);
     raidPlayerHearts = stats.hearts;
     raidPlayerMaxHearts = stats.hearts;
@@ -2303,15 +2345,10 @@ function enterRaidBattle() {
     const bossImg = document.getElementById("boss-img");
     if (bossImg) { bossImg.style.display = "block"; bossImg.src = "raid-boss.png"; }
 
-    const skillBtn = document.getElementById("skill-timestop-btn");
-    if (skillBtn) {
-        skillBtn.disabled = false;
-        skillBtn.style.opacity = "1";
-        skillBtn.innerText = `⏰ 時間停止 (${stats.stopSec}秒)`;
-    }
+    setupSkillBar(stats);
 
     updateRaidHeartsUI();
-    setBattleCharacterDisplay("国語");
+    setBattleCharacterDisplay(raidFighter);
 
     if (!raidBossHpListenerAttached) {
         db.ref("raid/bossHp").on("value", snap => {
@@ -2362,7 +2399,7 @@ function generateRaidQuestion() {
 function handleRaidAnswer(selectedIndex) {
     stopTimer();
 
-    const lv = Math.max(1, characterLevels["国語"].level);
+    const lv = Math.max(1, characterLevels[raidFighter].level);
     const stats = getPlayerStats(lv);
 
     for (let i = 0; i < 4; i++) {
@@ -2372,8 +2409,8 @@ function handleRaidAnswer(selectedIndex) {
 
     if (selectedIndex === raidQuestion.answer) {
         flashScreen("correct");
-        showBattleMessage(`✅ 正解！ ${getRandomAttackLine("国語")} ${stats.attack} ダメージ！`);
-        playSpriteState("国語", "attack");
+        showBattleMessage(`✅ 正解！ ${getRandomAttackLine(raidFighter)} ${stats.attack} ダメージ！`);
+        playSpriteState(raidFighter, "attack");
 
         const correctBtn = document.getElementById("choice" + selectedIndex);
         if (correctBtn) { correctBtn.style.background = "#004400"; correctBtn.style.borderColor = "#00ff00"; }
@@ -2384,7 +2421,7 @@ function handleRaidAnswer(selectedIndex) {
         raidPlayerHearts--;
         flashScreen("wrong");
         showBattleMessage("❌ 不正解！ ハートが1つ減った！");
-        playSpriteState("国語", "hurt");
+        playSpriteState(raidFighter, "hurt");
 
         const wrongBtn = document.getElementById("choice" + selectedIndex);
         if (wrongBtn) { wrongBtn.style.background = "#440000"; wrongBtn.style.borderColor = "#ff0000"; }
@@ -2400,7 +2437,7 @@ function handleRaidAnswer(selectedIndex) {
             alert("💀 あなたは力尽きた…\n他の仲間の活躍を見守ろう！拠点に戻ります。");
             endBattle();
         } else {
-            playSpriteState("国語", "idle");
+            playSpriteState(raidFighter, "idle");
             generateRaidQuestion();
             startTimer();
         }
