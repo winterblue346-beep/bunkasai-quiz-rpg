@@ -404,3 +404,200 @@ body {
 .sprite-anim.sprite-once {
     animation-iteration-count: 1;
 }
+
+/* ==========================================
+   ⚔️ バトル画面(枠なし・フィールド全体を使うレイアウト)
+   ========================================== */
+:root {
+    /* 味方キャラ1体の大きさ。画面の高さに合わせて、4体並んでも収まるよう自動で決まる */
+    /* ゲーム枠の高さ(index.html の #game-container は 765px 固定)から、4体並んで収まる大きさを出す */
+    --char: max(48px, min(96px, calc((765px - 330px) / 4 - 18px)));
+}
+
+#battlefield {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    gap: 6px;
+    position: relative;
+}
+
+/* ---- 味方 ---- */
+#party-display-area {
+    flex: 1.1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 4px;
+}
+.party-slot {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 0 0 auto;
+}
+.party-char-wrap {
+    position: relative;
+    width: var(--char);
+    height: var(--char);
+}
+.party-slot-img,
+.party-slot-sprite {
+    width: var(--char);
+    height: var(--char);
+    object-fit: contain;
+    display: block;
+}
+.party-slot-name {
+    font-size: 10px;
+    font-weight: bold;
+    color: #fff;
+    text-shadow: 0 1px 3px #000;
+    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    height: 14px;
+    line-height: 14px;
+}
+
+/* ダメージを受けた時だけ、キャラの上に出るHPバー */
+.party-hp-float {
+    position: absolute;
+    top: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 92%;
+    opacity: 0;
+    transition: opacity 0.25s;
+    pointer-events: none;
+    z-index: 3;
+}
+.party-hp-float.show { opacity: 1; }
+.party-hp-track {
+    height: 9px;
+    border-radius: 5px;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.7);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55);
+}
+.party-slot-hpbar {
+    height: 100%;
+    width: 100%;
+    background: #33cc66;
+    transition: width 0.3s;
+}
+
+/* ダメージ数字と、被弾時の揺れ */
+.dmg-pop {
+    position: absolute;
+    left: 50%;
+    top: 12%;
+    color: #ff5555;
+    font-size: 22px;
+    font-weight: bold;
+    text-shadow: 0 0 4px #000, 0 2px 4px #000;
+    pointer-events: none;
+    z-index: 4;
+    animation: dmg-float 0.9s ease-out forwards;
+}
+@keyframes dmg-float {
+    0%   { opacity: 1; transform: translate(-50%, 0); }
+    100% { opacity: 0; transform: translate(-50%, -34px); }
+}
+.hit-shake { animation: hit-shake 0.4s; }
+@keyframes hit-shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-6px); }
+    40% { transform: translateX(6px); }
+    60% { transform: translateX(-4px); }
+    80% { transform: translateX(4px); }
+}
+
+/* ---- 敵 ---- */
+#enemy-area {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+/* 敵の画像: 枠(wrap)が空き高さを受け持ち、画像は枠いっぱいに重ねる。
+   iPhone Safariで画像が元のサイズに戻ってしまう不具合を避けるための作り */
+#boss-img-wrap {
+    position: relative;
+    flex: 1 1 0;
+    min-height: 0;
+    width: 100%;
+    overflow: hidden;
+}
+#boss-img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+#boss-name {
+    font-weight: bold;
+    font-size: 13px;
+    margin-top: 2px;
+    text-shadow: 0 1px 3px #000;
+}
+
+/* ---- タイマー(敵の上のバー) ---- */
+#battle-timer-wrap {
+    position: relative;
+    width: 100%;
+    height: 26px;
+    flex-shrink: 0;
+    margin-bottom: 6px;
+    border-radius: 13px;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.55);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35);
+}
+#battle-timer-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    background: #ffcc00;
+    transition: width 1s linear, background 0.3s;
+}
+#battle-timer {
+    position: relative;
+    z-index: 1;
+    line-height: 26px;
+    font-size: 15px;
+    font-weight: bold;
+    color: #fff;
+    text-align: center;
+    text-shadow: 0 1px 3px #000;
+}
+
+/* ---- メッセージ(フィールドの下に重ねる) ---- */
+#battle-message {
+    position: absolute;
+    left: 50%;
+    bottom: 6px;
+    transform: translateX(-50%);
+    max-width: 92%;
+    padding: 5px 12px;
+    border-radius: 14px;
+    background: rgba(0, 0, 0, 0.65);
+    font-size: 13px;
+    color: #fff;
+    text-align: center;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+    z-index: 5;
+}
