@@ -415,6 +415,7 @@ body {
 }
 
 #battlefield {
+    --enemy-px: var(--char);   /* 昇格戦の敵の大きさ = 味方キャラと同じ */
     flex: 1;
     min-height: 0;
     display: flex;
@@ -518,6 +519,7 @@ body {
 
 /* ---- 敵 ---- */
 #enemy-area {
+    position: relative;   /* 万一、画像が枠に包まれていなくても、敵エリアの外へ広がらないようにする */
     flex: 1;
     min-width: 0;
     min-height: 0;
@@ -527,13 +529,15 @@ body {
     align-items: center;
     text-align: center;
 }
-/* 敵の画像: 枠(wrap)が空き高さを受け持ち、画像は枠いっぱいに重ねる。
-   iPhone Safariで画像が元のサイズに戻ってしまう不具合を避けるための作り */
+/* 敵の画像: 味方キャラと同じ大きさ(--enemy-px)の枠に収める。
+   枠は敵エリアの縦の真ん中に置き、上のタイマーと下の名前・HPの間に入る */
 #boss-img-wrap {
     position: relative;
-    flex: 1 1 0;
-    min-height: 0;
-    width: 100%;
+    flex: 0 0 auto;
+    width: var(--enemy-px);
+    max-width: 100%;       /* 狭い画面でも敵エリアからはみ出さない(画像は枠に収まるよう縮む) */
+    height: var(--enemy-px);
+    margin-top: auto;
     overflow: hidden;
 }
 #boss-img {
@@ -543,6 +547,11 @@ body {
     width: 100%;
     height: 100%;
     object-fit: contain;
+    object-position: center bottom;
+}
+/* 敵エリアの一番下(HPバー)の下を空けて、まとめて縦中央に寄せる */
+#enemy-area > div:last-child {
+    margin-bottom: auto;
 }
 #boss-name {
     font-weight: bold;
@@ -600,4 +609,13 @@ body {
     transition: opacity 0.3s;
     pointer-events: none;
     z-index: 5;
+}
+
+
+/* ==========================================
+   👹 レイドボス: 雑魚敵(=味方キャラと同じ大きさ)の2倍
+   大きさを変えたいときは、下の「2」を変える
+   ========================================== */
+#battlefield.raid-mode {
+    --enemy-px: calc(var(--char) * 2);
 }
