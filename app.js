@@ -1873,6 +1873,112 @@ function getCharImgFile(subject, mood) {
 
 // バトル画面専用の「ドット絵」ファイル名を組み立てる(例: algebra_battle_normal.png)
 // ドット絵がまだ無いキャラは自動的にイラスト版(getCharImgFile)にフォールバックする
+// ==========================================
+// ⚡ 攻撃ポーズ: 正解したとき、戦っているキャラが「攻撃の絵」に切り替わる
+//   画像は index.html と同じ場所に「キャラ接頭辞_cutin.webp」の名前で置く(例: yamato_cutin.webp)
+//   画像が無いキャラは、何も切り替わらないだけで、ゲームは普通に進む
+// ==========================================
+const ATTACK_POSE_ENABLED = true;    // false にすると、攻撃ポーズへの切り替えをしない
+const ATTACK_POSE_MS = 1100;         // CSS の attack-pose / idle-away のアニメ時間と合わせる
+const ENEMY_HIT_DELAY_MS = 450;      // 攻撃ポーズの開始から、敵が揺れるまでの時間
+let attackPoseTimer = null;
+
+function getAttackArtFile(subject) {
+    const meta = subjectMeta[subject];
+    return meta ? `${meta.imgBase}_cutin.webp` : null;
+}
+
+// バトル開始時に先読みして、初回の切り替えで遅れないようにする
+function preloadAttackArt(subject) {
+    const file = getAttackArtFile(subject);
+    if (file) { const im = new Image(); im.src = file; }
+}
+
+// index.html が古いままでも動くように、攻撃ポーズに必要な要素が無ければ自分で作る(保険)
+function ensureAttackPoseElements() {
+    const wrap = document.getElementById("party-slot-0-wrap");
+    if (wrap && !document.getElementById("party-slot-0-attackart")) {
+        const art = document.createElement("img");
+        art.id = "party-slot-0-attackart";
+        art.className = "party-attack-art";
+        art.alt = "";
+        wrap.appendChild(art);
+    }
+    const field = document.getElementById("battlefield");
+    if (field && !document.getElementById("attack-dim")) {
+        const dim = document.createElement("div");
+        dim.id = "attack-dim";
+        dim.setAttribute("aria-hidden", "true");
+        field.appendChild(dim);
+    }
+}
+
+// URLの末尾に ?debug=1 を付けて開くと、正解したときに診断が画面に出る(切り替わらない原因の特定用)
+const ATTACK_DEBUG = /[?&]debug=1/.test(location.search);
+function showAttackDebug(lines) {
+    let el = document.getElementById("attack-debug");
+    if (!el) {
+        el = document.createElement("div");
+        el.id = "attack-debug";
+        el.style.cssText = "position:fixed;left:6px;right:6px;top:60px;z-index:9999;background:rgba(0,0,0,0.88);color:#0f0;font:12px/1.6 monospace;padding:8px 10px;border-radius:8px;white-space:pre-wrap;pointer-events:none;";
+        document.body.appendChild(el);
+    }
+    el.textContent = lines.join("\n");
+    if (el._t) clearTimeout(el._t);
+    el._t = setTimeout(() => el.remove(), 7000);
+}
+
+function playAttackPose(subject) {
+    if (!ATTACK_POSE_ENABLED) return;
+    ensureAttackPoseElements();
+    const wrap = document.getElementById("party-slot-0-wrap");
+    const art = document.getElementById("party-slot-0-attackart");
+    const dim = document.getElementById("attack-dim");
+    const file = getAttackArtFile(subject);
+
+    if (ATTACK_DEBUG) {
+        const cssOk = art ? getComputedStyle(art).position === "absolute" : false;
+        const lines = [
+            `app.js    : ${APP_BUILD}`,
+            `HTML要素  : ${wrap && art && dim ? "OK" : "NG (index.html が古い)"}`,
+            `CSS       : ${cssOk ? "OK" : "NG (style.css が古い)"}`,
+            `画像      : ${file} 確認中...`
+        ];
+        showAttackDebug(lines);
+        if (file) {
+            const probe = new Image();
+            probe.onload = () => { lines[3] = `画像      : ${file} OK`; showAttackDebug(lines); };
+            probe.onerror = () => { lines[3] = `画像      : ${file} NG (ファイルが無い)`; showAttackDebug(lines); };
+            probe.src = file;
+        }
+    }
+    if (!wrap || !art || !file) return;
+
+    const finish = () => {
+        wrap.classList.remove("attacking");
+        if (dim) dim.classList.remove("on");
+    };
+    art.onerror = finish;                      // 画像が無い・読めないときは、いつもの姿のまま
+    wrap.classList.remove("attacking");
+    void wrap.offsetWidth;                     // アニメーションを最初から再生し直す
+    art.src = file;
+    wrap.classList.add("attacking");
+    if (dim) dim.classList.add("on");
+
+    if (attackPoseTimer) clearTimeout(attackPoseTimer);
+    attackPoseTimer = setTimeout(finish, ATTACK_POSE_MS + 60);
+
+    // 技が当たるタイミングで、敵を揺らす
+    const enemyWrap = document.getElementById("boss-img-wrap");
+    if (enemyWrap) {
+        setTimeout(() => {
+            enemyWrap.classList.remove("enemy-hit");
+            void enemyWrap.offsetWidth;
+            enemyWrap.classList.add("enemy-hit");
+        }, ENEMY_HIT_DELAY_MS);
+    }
+}
+
 function getBattleSpriteFile(subject, mood) {
     const meta = subjectMeta[subject];
     return meta ? `${meta.imgBase}_battle_${mood}.png` : `yuzuki_battle_${mood}.png`;
@@ -1885,6 +1991,7 @@ function setBattleCharacterDisplay(subject) {
     if (nameEl && meta) nameEl.innerText = meta.name;
     renderPartyDisplay(subject);
     playSpriteState(subject, "idle");
+    preloadAttackArt(subject);
 }
 
 function setBattlePlayerImg(src) {
@@ -1992,6 +2099,7 @@ function handleEvolutionAnswer(selectedIndex) {
         flashScreen("correct");
         showBattleMessage(`✅ 正解！ ${getRandomAttackLine(evolutionSubject)} ${stats.attack} ダメージ！`);
         playSpriteState(evolutionSubject, "attack");
+        playAttackPose(evolutionSubject);
 
         const correctBtn = document.getElementById("choice" + selectedIndex);
         if (correctBtn) { correctBtn.style.background = "#004400"; correctBtn.style.borderColor = "#00ff00"; }
@@ -2227,7 +2335,7 @@ async function loadTMModelIfNeeded() {
     tmMaxPredictions = tmModel.getTotalClasses();
 }
 
-const APP_BUILD = "v4-camera";   // 画面に表示される版番号(新しい app.js が届いたか確認用)
+const APP_BUILD = "v6-attackpose";   // 画面に表示される版番号(新しい app.js が届いたか確認用)
 let scanVideo = null;
 let scanCanvas = null;
 let scanStream = null;
@@ -2723,6 +2831,7 @@ function handleRaidAnswer(selectedIndex) {
         flashScreen("correct");
         showBattleMessage(`✅ 正解！ ${getRandomAttackLine(raidFighter)} ${stats.attack} ダメージ！`);
         playSpriteState(raidFighter, "attack");
+        playAttackPose(raidFighter);
 
         const correctBtn = document.getElementById("choice" + selectedIndex);
         if (correctBtn) { correctBtn.style.background = "#004400"; correctBtn.style.borderColor = "#00ff00"; }
@@ -2909,6 +3018,7 @@ function ensureBossImgWrap() {
 function initGame() {
     console.log("initGame開始");
     ensureBossImgWrap();
+    ensureAttackPoseElements();
 
     // ?reset=1 を付けて開くと、セーブデータを消して最初から始められる(テスト・展示用)
     try {

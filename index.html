@@ -206,6 +206,7 @@
                         <div class="party-char-wrap" id="party-slot-0-wrap">
                             <div class="party-hp-float" id="party-slot-0-hpfloat"><div class="party-hp-track"><div class="party-slot-hpbar" id="party-slot-0-hpbar"></div></div></div>
                             <img class="party-slot-img" id="party-slot-0-img" src="yuzuki_normal.png" onerror="this.style.visibility='hidden'">
+                            <img class="party-attack-art" id="party-slot-0-attackart" alt="">
                         <div class="party-slot-sprite" id="party-slot-0-sprite" style="display:none;"></div>
                         </div>
                         <div class="party-slot-name" id="party-slot-0-name">紫鳴 結月</div>
@@ -254,6 +255,9 @@
                 </div>
 
                 <!-- 💬 メッセージはフィールドの下に重ねて表示 -->
+                <!-- ⚡ 攻撃ポーズのあいだ、戦場を少し暗くして技を目立たせる -->
+                <div id="attack-dim" aria-hidden="true"></div>
+
                 <div id="battle-message"></div>
 
             </div>

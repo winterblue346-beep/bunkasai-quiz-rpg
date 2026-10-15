@@ -535,7 +535,7 @@ body {
     position: relative;
     flex: 0 0 auto;
     width: var(--enemy-px);
-    max-width: 30%;       /* 狭い画面でも敵エリアからはみ出さない(画像は枠に収まるよう縮む) */
+    max-width: 100%;       /* 狭い画面でも敵エリアからはみ出さない(画像は枠に収まるよう縮む) */
     height: var(--enemy-px);
     margin-top: auto;
     overflow: hidden;
@@ -544,8 +544,8 @@ body {
     position: absolute;
     top: 0;
     left: 0;
-    width: 60%;
-    height: 60%;
+    width: 100%;
+    height: 100%;
     object-fit: contain;
     object-position: center bottom;
 }
@@ -618,4 +618,68 @@ body {
    ========================================== */
 #battlefield.raid-mode {
     --enemy-px: calc(var(--char) * 2);
+}
+
+
+/* ==========================================
+   ⚡ 攻撃ポーズ: 正解したとき、戦っているキャラが攻撃の絵に切り替わる
+   ・キャラは絵の左側に描かれているので、味方キャラの立ち位置に合わせて置き、技は右(敵のほう)へ伸びる
+   ・絵は黒背景なので、まわりをなだらかに消し、さらに戦場を少し暗くしてなじませる
+   ========================================== */
+.party-attack-art {
+    display: none;
+    position: absolute;
+    z-index: 10;
+    pointer-events: none;
+    height: calc(var(--char) * 1.5);     /* 攻撃ポーズの大きさ(通常の1.5倍)。変えるなら、下の幅も 1.5倍 して合わせる */
+    width: calc(var(--char) * 2.25);
+    left: 0;
+    top: calc(var(--char) * -0.25);
+    object-fit: contain;
+    -webkit-mask-image: radial-gradient(ellipse at center, #000 58%, transparent 99%);
+    mask-image: radial-gradient(ellipse at center, #000 58%, transparent 99%);
+}
+.party-char-wrap.attacking .party-attack-art {
+    display: block;
+    animation: attack-pose 1.1s linear forwards;
+}
+/* 攻撃ポーズのあいだ、いつもの姿は隠す(最後の少しで入れ替わる) */
+.party-char-wrap.attacking .party-slot-img,
+.party-char-wrap.attacking .party-slot-sprite {
+    animation: idle-away 1.1s linear forwards;
+}
+@keyframes attack-pose {
+    0%   { opacity: 0; transform: translateX(-8px) scale(0.94); }
+    6%   { opacity: 1; transform: translateX(0) scale(1); }
+    92%  { opacity: 1; transform: translateX(4px) scale(1); }
+    100% { opacity: 0; transform: translateX(6px) scale(1); }
+}
+@keyframes idle-away {
+    0%   { opacity: 1; }
+    4%   { opacity: 0; }
+    92%  { opacity: 0; }
+    100% { opacity: 1; }
+}
+#attack-dim {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.45);
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+    z-index: 4;
+}
+#attack-dim.on { opacity: 1; }
+
+/* 攻撃が当たったときの、敵の小さな揺れ */
+.enemy-hit { animation: enemy-hit 0.35s; }
+@keyframes enemy-hit {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-7px); }
+    40% { transform: translateX(7px); }
+    60% { transform: translateX(-4px); }
+    80% { transform: translateX(4px); }
 }
