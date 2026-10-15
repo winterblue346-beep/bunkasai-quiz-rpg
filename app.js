@@ -961,10 +961,10 @@ function generateRandomRaidQuestion() {
 // ==========================================
 const BGM_DIR = "";   // フォルダに入れる場合は "bgm/" のように書く(最後に / が必要)
 const BGM_SCENES = {
-    hub:    { file: "bgm_hub.mp3",    volume: 0.5 },   // 拠点・編成・チュートリアル・名前入力・スキャン
-    trial:  { file: "bgm_trial.mp3",  volume: 0.5 },   // キャラ獲得試練
-    battle: { file: "bgm_battle.mp3", volume: 0.5 },   // 昇格戦
-    raid:   { file: "bgm_raid.mp3",   volume: 0.5 }    // レイドのロビー〜レイドバトル
+    hub:    { file: "bgm_hub.mp3",    volume: 0.5 },   // 拠点・編成・チュートリアル・名前入力・スキャン・レイドのロビー
+    trial:  { file: "bgm_trial.mp3",  volume: 0.65 },  // キャラ獲得試練(元の音が小さめなので音量を上げて他の曲とそろえている)
+    battle: { file: "bgm_battle.m4a", volume: 0.5 },   // 昇格戦
+    raid:   { file: "bgm_raid.mp3",   volume: 0.5 }    // レイドバトル(ロビーでは流さない)
 };
 const BGM_FALLBACK = { trial: "hub", battle: "hub", raid: "battle" };   // 曲が無いときの代わり
 
@@ -1062,7 +1062,6 @@ function setBgmScene(scene) {
 function updateBgmForScreen(screenId) {
     let scene = "hub";
     if (screenId === "trial-screen") scene = "trial";
-    else if (screenId === "lobby-screen") scene = "raid";
     else if (screenId === "battle-screen") scene = (currentBattleMode === "raid") ? "raid" : "battle";
     setBgmScene(scene);
 
@@ -1111,6 +1110,9 @@ function showOnlyThisScreen(screenId) {
     });
     const fixedArea = document.getElementById("fixed-action-area");
     if (fixedArea) fixedArea.style.display = (screenId === "hub-screen") ? "block" : "none";
+    // レイドのときだけ、ボスを大きく左寄りに表示するレイアウトにする
+    const bf = document.getElementById("battlefield");
+    if (bf) bf.classList.toggle("raid-mode", screenId === "battle-screen" && currentBattleMode === "raid");
     updateBgmForScreen(screenId);
 }
 // ==========================================
@@ -2892,8 +2894,21 @@ function tutorialPrev() {
         renderTutorialPage();
     }
 }
+// 敵画像を固定サイズの枠(#boss-img-wrap)で包む。
+// index.html が古いままでも崩れないようにするための保険(すでに包まれていれば何もしない)
+function ensureBossImgWrap() {
+    const img = document.getElementById("boss-img");
+    if (!img || !img.parentElement) return;
+    if (img.parentElement.id === "boss-img-wrap") return;
+    const wrap = document.createElement("div");
+    wrap.id = "boss-img-wrap";
+    img.parentElement.insertBefore(wrap, img);
+    wrap.appendChild(img);
+}
+
 function initGame() {
     console.log("initGame開始");
+    ensureBossImgWrap();
 
     // ?reset=1 を付けて開くと、セーブデータを消して最初から始められる(テスト・展示用)
     try {
