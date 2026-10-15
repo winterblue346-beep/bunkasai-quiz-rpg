@@ -535,7 +535,7 @@ body {
     position: relative;
     flex: 0 0 auto;
     width: var(--enemy-px);
-    max-width: 100%;       /* 狭い画面でも敵エリアからはみ出さない(画像は枠に収まるよう縮む) */
+    max-width: 30%;       /* 狭い画面でも敵エリアからはみ出さない(画像は枠に収まるよう縮む) */
     height: var(--enemy-px);
     margin-top: auto;
     overflow: hidden;
@@ -544,8 +544,8 @@ body {
     position: absolute;
     top: 0;
     left: 0;
-    width: 100%;
-    height: 100%;
+    width: 60%;
+    height: 60%;
     object-fit: contain;
     object-position: center bottom;
 }
