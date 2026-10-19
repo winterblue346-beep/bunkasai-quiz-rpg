@@ -666,9 +666,10 @@ body {
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.45);
+    background: rgba(0, 0, 0, 0.4);                  /* 戦場の内側は背景色で、 */
+    box-shadow: 0 0 0 1500px rgba(0, 0, 0, 0.4);   /* 外側は大きな影で、同じ濃さに暗くする(バトル画面全体が縁なしで暗くなる) */
     opacity: 0;
-    transition: opacity 0.2s;
+    transition: opacity 0.25s;
     pointer-events: none;
     z-index: 4;
 }
@@ -682,4 +683,109 @@ body {
     40% { transform: translateX(7px); }
     60% { transform: translateX(-4px); }
     80% { transform: translateX(4px); }
+}
+
+
+/* ==========================================
+   👹 レイドボスの第二形態
+   ・第一形態と同じ高さのまま、横に広がる絵(オーラ)の分だけ幅を広げる
+   ・右端は少し画面の外に出し(見切れてOK)、左へはオーラが広がる。味方は手前に表示
+   大きさを変えたいときは、下の 3.9 / 2.18 を変える(幅 : 高さ = 1.79 : 1 の絵なので、比率を保つと自然)
+   ========================================== */
+#battlefield.raid-phase2 #enemy-area {
+    overflow: visible;
+}
+#battlefield.raid-phase2 #boss-img-wrap {
+    width: calc(var(--char) * 3.9);
+    max-width: none;
+    height: calc(var(--char) * 2.18);
+    align-self: flex-end;
+    margin-right: -40px;
+    overflow: visible;
+}
+#battlefield.raid-phase2 #party-display-area {
+    position: relative;
+    z-index: 2;
+}
+
+/* 変身の演出: 全画面のフラッシュ / 画面の揺れ / 登場時のドンッという拡大 */
+#phase-flash {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(225, 195, 255, 0.9);
+    box-shadow: 0 0 0 1500px rgba(225, 195, 255, 0.9);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 7;
+}
+#phase-flash.on { animation: phase-flash 0.9s ease-out forwards; }
+@keyframes phase-flash {
+    0%   { opacity: 0; }
+    28%  { opacity: 1; }
+    100% { opacity: 0; }
+}
+.phase-shake { animation: phase-shake 0.9s; }
+@keyframes phase-shake {
+    0%, 100% { transform: translate(0, 0); }
+    10% { transform: translate(-7px, 3px); }
+    20% { transform: translate(7px, -3px); }
+    30% { transform: translate(-6px, -2px); }
+    40% { transform: translate(6px, 2px); }
+    55% { transform: translate(-4px, 1px); }
+    70% { transform: translate(3px, -1px); }
+}
+.phase-pop {
+    transform-origin: center bottom;
+    animation: phase-pop 0.7s ease-out;
+}
+@keyframes phase-pop {
+    0%   { transform: scale(0.7); filter: brightness(2.2); }
+    40%  { transform: scale(1.12); filter: brightness(1.5); }
+    100% { transform: scale(1); filter: brightness(1); }
+}
+
+
+/* ==========================================
+   ⚔️ 第二形態イベント: 倒れる仲間 / 残った1体 / 覚醒
+   ========================================== */
+/* 倒れた仲間: 色が抜けて、横に倒れる */
+.party-slot.downed .party-char-wrap {
+    animation: member-fall 0.9s ease-in forwards;
+}
+.party-slot.downed .party-slot-name {
+    color: #777;
+    text-decoration: line-through;
+}
+@keyframes member-fall {
+    0%   { transform: rotate(0) translateY(0); filter: none; opacity: 1; }
+    35%  { transform: rotate(-12deg) translateY(-6px); filter: brightness(1.8); opacity: 1; }
+    100% { transform: rotate(-82deg) translate(-6px, 14px); filter: grayscale(1) brightness(0.45); opacity: 0.55; }
+}
+
+/* 最後に立っている1体: ほのかに白く光る */
+.party-slot.survivor .party-char-wrap {
+    animation: survivor-glow 0.9s ease-in-out infinite alternate;
+}
+@keyframes survivor-glow {
+    0%   { filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.4)); }
+    100% { filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.95)); }
+}
+
+/* 覚醒: 金色のオーラをまとう */
+.party-slot.awakened .party-char-wrap {
+    animation: awaken-pulse 1.2s ease-in-out infinite alternate;
+}
+@keyframes awaken-pulse {
+    0%   { filter: drop-shadow(0 0 5px #ffe27a) drop-shadow(0 0 12px #ffb300); }
+    100% { filter: drop-shadow(0 0 10px #fff2a8) drop-shadow(0 0 26px #ffc400); }
+}
+.party-slot.awakened .party-slot-name { color: #ffe27a; text-shadow: 0 0 6px #ffb300; }
+
+/* 覚醒の瞬間の、金色のフラッシュ */
+#phase-flash.gold {
+    background: rgba(255, 228, 120, 0.9);
+    box-shadow: 0 0 0 1500px rgba(255, 228, 120, 0.9);
 }
