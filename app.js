@@ -60,24 +60,295 @@ let evolutionBossMaxHp = 500;
 let evolutionPlayerHearts = 5;
 let evolutionPlayerMaxHearts = 5;
 let evolutionQuestion = null;
-let skillUsed = false;
 
-// ⚙️ スキルのオン/オフ。false の間はスキル欄だけ残して中身は空になる(戻すときは true に)
-const SKILLS_ENABLED = false;
+// ==========================================
+// ⭐ キャラ別スキル(戦っている先頭のキャラの、スキル4つがボタンに並ぶ)
+//   ・下の CHARACTER_SKILLS に、キャラごとに最大4つ書く。中身は「仮」なので、自由に書き換えてOK
+//   ・各スキルの書き方:
+//       name  : ボタンに出る名前(5文字くらいまで)
+//       icon  : 絵文字
+//       type  : 効果の種類(下の一覧から選ぶ)
+//       power : 効果の強さ。[Lv1, Lv2, Lv3] の順に書く(レベルが上がると強くなる)
+//       uses  : 1回の戦闘で使える回数
+//   ・効果の種類(type):
+//       timestop    … タイマーが power 秒止まる
+//       hint        … 誤答の選択肢を power 個消す
+//       heal        … ハートが power 個回復する
+//       extend      … 制限時間が power 秒のびる
+//       reroll      … 問題を入れ替える(制限時間も戻る)
+//       powerup     … 次の正解のダメージが power 倍になる
+//       shield      … 次の不正解・時間切れを1回だけ無効にする
+//       autocorrect … 今の問題を正解にする
+//   ・第二形態のイベント中(負けイベ・覚醒中)は、スキルは使えない
+// ==========================================
+const SKILLS_ENABLED = true;   // false にすると、スキル欄は空になる
 
-// バトル開始時にスキル欄の表示を整える
-function setupSkillBar(stats) {
-    const btn = document.getElementById("skill-timestop-btn");
-    if (!btn) return;
-    if (SKILLS_ENABLED) {
-        btn.disabled = false;
-        btn.style.opacity = "1";
-        btn.innerText = `⏰ 時間停止 (${stats.stopSec}秒)`;
-    } else {
-        btn.disabled = true;
-        btn.style.opacity = "0.4";
-        btn.innerText = "—";
+const CHARACTER_SKILLS = {
+    "国語": [   // 紫鳴 結月
+        { name: "文脈読み",   icon: "🔍", type: "hint",    power: [1, 2, 2],     uses: 1 },
+        { name: "推敲の時間", icon: "⏳", type: "extend",  power: [3, 5, 7],     uses: 2 },
+        { name: "ページ送り", icon: "📖", type: "reroll",  uses: 1 },
+        { name: "破滅の魔法", icon: "💥", type: "powerup", power: [2, 2.5, 3],   uses: 1 }
+    ],
+    "数学": [   // アルゲブラ
+        { name: "絶対零度",   icon: "⏰", type: "timestop", power: [3, 4, 5],    uses: 1 },
+        { name: "消去法",     icon: "➖", type: "hint",     power: [1, 2, 2],    uses: 1 },
+        { name: "背理法の盾", icon: "🛡️", type: "shield",   uses: 1 },
+        { name: "証明完了",   icon: "✨", type: "powerup",  power: [2, 2.5, 3],  uses: 1 }
+    ],
+    "英語": [   // エルメシア・ルミナリア
+        { name: "祝福の歌",   icon: "🎵", type: "heal",    power: [1, 1, 2],     uses: 1 },
+        { name: "詠唱延長",   icon: "⏳", type: "extend",  power: [3, 5, 7],     uses: 2 },
+        { name: "聖なる加護", icon: "🛡️", type: "shield",  uses: 1 },
+        { name: "黄金魔法陣", icon: "💥", type: "powerup", power: [2, 2.5, 3],   uses: 1 }
+    ],
+    "物理": [   // ファイ
+        { name: "重力停止",   icon: "⏰", type: "timestop", power: [3, 4, 5],    uses: 1 },
+        { name: "慣性の法則", icon: "⏳", type: "extend",   power: [3, 5, 7],    uses: 2 },
+        { name: "引力の渦",   icon: "🌀", type: "reroll",   uses: 1 },
+        { name: "衝撃波",     icon: "💥", type: "powerup",  power: [2, 2.5, 3],  uses: 1 }
+    ],
+    "化学": [   // ルイス・ジョンソン
+        { name: "触媒",       icon: "🧪", type: "hint",    power: [1, 2, 2],     uses: 1 },
+        { name: "中和",       icon: "💧", type: "heal",    power: [1, 1, 2],     uses: 1 },
+        { name: "再実験", icon: "🔁", type: "reroll", uses: 1 },
+        { name: "爆発反応",   icon: "💥", type: "powerup", power: [2.5, 3, 3.5], uses: 1 }
+    ],
+    "歴史": [   // 大和誠
+        { name: "見切り",     icon: "🛡️", type: "shield",     uses: 1 },
+        { name: "年表",       icon: "🔍", type: "hint",       power: [1, 2, 2],  uses: 1 },
+        { name: "時の流れ",   icon: "⏰", type: "timestop",   power: [3, 4, 5],  uses: 1 },
+        { name: "一刀両断",   icon: "⚔️", type: "autocorrect", uses: 1 }
+    ],
+    "地理": [   // 伊能大地
+        { name: "大地の恵み", icon: "🌱", type: "heal",    power: [1, 1, 2],     uses: 1 },
+        { name: "地図読み", icon: "🗺️", type: "hint",  power: [1, 2, 2],     uses: 1 },
+        { name: "行軍の余裕", icon: "⏳", type: "extend",  power: [3, 5, 7],     uses: 2 },
+        { name: "地殻変動",   icon: "💥", type: "powerup", power: [2, 2.5, 3],   uses: 1 }
+    ]
+};
+
+let skillUsesLeft = [0, 0, 0, 0];   // 各スキルの、残り回数
+let skillPowerMult = 1;             // 「次の正解のダメージ」の倍率(powerup)
+let skillShield = 0;                // 「次の失敗を無効」の残り(shield)
+let skillEpoch = 0;                 // 戦闘のたびに増やして、前の戦闘の予約を無効にする
+let skillSubjectShown = null;       // いま、スキル欄に出しているキャラ
+
+function currentSkillSubject() {
+    return currentBattleMode === "raid" ? raidFighter : evolutionSubject;
+}
+function currentSkillLevel(subject) {
+    const d = characterLevels[subject];
+    return Math.max(1, Math.min(3, d ? d.level : 1));
+}
+function skillsOf(subject) {
+    return (CHARACTER_SKILLS[subject] || []).slice(0, 4);
+}
+function skillPower(sk, lv) {
+    if (Array.isArray(sk.power)) return sk.power[Math.min(lv, sk.power.length) - 1];
+    return sk.power;
+}
+function skillShortEffect(sk, lv) {
+    const p = skillPower(sk, lv);
+    switch (sk.type) {
+        case "timestop":    return `停止${p}秒`;
+        case "hint":        return `誤答-${p}`;
+        case "heal":        return `ハート+${p}`;
+        case "extend":      return `+${p}秒`;
+        case "reroll":      return "問題替え";
+        case "powerup":     return `次の一撃×${p}`;
+        case "shield":      return "ミス無効";
+        case "autocorrect": return "正解にする";
+        default:            return "";
     }
+}
+
+// スキル欄(4つのボタンが並ぶ行)を取得する。古い index.html でも動くように、行にIDが無ければ付ける
+function getSkillRow() {
+    let row = document.getElementById("skill-row");
+    if (row) return row;
+    const old = document.getElementById("skill-timestop-btn");
+    if (old && old.parentElement) { old.parentElement.id = "skill-row"; return old.parentElement; }
+    return null;
+}
+
+// スキルのボタンを並べ直す(戦っているキャラが変わったときにも呼ぶ)
+function renderSkillBar() {
+    const row = getSkillRow();
+    if (!row) return;
+    row.innerHTML = "";
+    const subject = currentSkillSubject();
+    const lv = currentSkillLevel(subject);
+    const list = SKILLS_ENABLED ? skillsOf(subject) : [];
+    for (let i = 0; i < 4; i++) {
+        const sk = list[i];
+        const btn = document.createElement("button");
+        btn.className = "skill-slot" + (sk ? "" : " empty");
+        btn.dataset.slot = String(i);
+        if (sk) {
+            btn.innerHTML = `<span class="sk-name">${sk.icon} ${sk.name}</span><span class="sk-sub">${skillShortEffect(sk, lv)} ×<b class="sk-uses">${skillUsesLeft[i]}</b></span>`;
+            btn.onclick = () => useSkill(i);
+        } else {
+            btn.innerHTML = '<span class="sk-name">—</span>';
+        }
+        btn.disabled = true;
+        row.appendChild(btn);
+    }
+    updateSkillBarState();
+}
+
+// 戦闘開始: 状態をリセットして、先頭のキャラのスキルを並べる
+function setupSkillBar(stats) {
+    skillEpoch++;
+    skillPowerMult = 1;
+    skillShield = 0;
+    timeStopActive = false;
+    const subject = currentSkillSubject();
+    skillSubjectShown = subject;
+    skillUsesLeft = [0, 1, 2, 3].map(i => { const sk = skillsOf(subject)[i]; return sk ? (sk.uses || 1) : 0; });
+    renderSkillBar();
+}
+
+// 戦っているキャラが変わったとき(レイドの覚醒など)に、スキル欄をそのキャラのものにする
+function refreshSkillBarForSubject() {
+    const subject = currentSkillSubject();
+    if (subject === skillSubjectShown) return;
+    skillSubjectShown = subject;
+    skillUsesLeft = [0, 1, 2, 3].map(i => { const sk = skillsOf(subject)[i]; return sk ? (sk.uses || 1) : 0; });
+    renderSkillBar();
+}
+
+// いま、スキルを使える場面か(問題が出ていて、まだ回答していない / 第二形態のイベント中ではない)
+function canUseSkillNow() {
+    if (!SKILLS_ENABLED) return false;
+    const bs = document.getElementById("battle-screen");
+    if (!bs || getComputedStyle(bs).display === "none") return false;
+    if (currentBattleMode === "raid" && (!raidActive || raidStage !== "normal")) return false;
+    return [0, 1, 2, 3].some(i => { const b = document.getElementById("choice" + i); return b && !b.disabled; });
+}
+
+// ボタンの押せる/押せないと、残り回数の表示を更新する(一定間隔で呼ばれる)
+function updateSkillBarState() {
+    const row = getSkillRow();
+    if (!row) return;
+    const subject = currentSkillSubject();
+    const list = SKILLS_ENABLED ? skillsOf(subject) : [];
+    const usable = canUseSkillNow();
+    row.querySelectorAll(".skill-slot").forEach(btn => {
+        const i = parseInt(btn.dataset.slot, 10);
+        const sk = list[i];
+        if (!sk) { btn.disabled = true; return; }
+        const left = skillUsesLeft[i] || 0;
+        const cnt = btn.querySelector(".sk-uses");
+        if (cnt) cnt.textContent = String(left);
+        btn.classList.toggle("used", left <= 0);
+        btn.disabled = !(usable && left > 0);
+    });
+}
+
+// ダメージ計算・失敗判定から呼ばれる(スキルの効果を、1回だけ使って消費する)
+function takeSkillDamage(base) {
+    const m = skillPowerMult;
+    skillPowerMult = 1;
+    return Math.round(base * m);
+}
+function takeSkillShield() {
+    if (skillShield > 0) { skillShield--; return true; }
+    return false;
+}
+
+// スキルの効果を発動する。成功したら、メッセージ(文字列)を返す。意味がない場面なら false(回数は減らさない)
+function applySkillEffect(sk, p) {
+    const raid = currentBattleMode === "raid";
+    const answer = raid ? raidQuestion.answer : evolutionQuestion.answer;
+    const epoch = skillEpoch;
+    switch (sk.type) {
+        case "timestop": {
+            if (timeStopActive) return false;
+            timeStopActive = true;
+            updateTimerUI();
+            setTimeout(() => {
+                if (epoch !== skillEpoch) return;
+                timeStopActive = false;
+                updateTimerUI();
+                showBattleMessage("▶️ 時間が動き出した！");
+            }, p * 1000);
+            return `タイマーが${p}秒止まる！`;
+        }
+        case "hint": {
+            const cands = [0, 1, 2, 3].filter(i => i !== answer && !document.getElementById("choice" + i).disabled);
+            if (cands.length === 0) return false;
+            for (let i = cands.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [cands[i], cands[j]] = [cands[j], cands[i]]; }
+            const n = Math.min(p, cands.length);
+            for (let k = 0; k < n; k++) {
+                const b = document.getElementById("choice" + cands[k]);
+                b.disabled = true;
+                b.style.opacity = "0.25";
+            }
+            return `誤答を${n}つ消した！`;
+        }
+        case "heal": {
+            const cur = raid ? raidPlayerHearts : evolutionPlayerHearts;
+            const max = raid ? raidPlayerMaxHearts : evolutionPlayerMaxHearts;
+            if (cur >= max) return false;
+            const gain = Math.min(p, max - cur);
+            if (raid) { raidPlayerHearts += gain; updateRaidHeartsUI(); }
+            else { evolutionPlayerHearts += gain; updateEvolutionUI(); }
+            return `ハートが${gain}つ回復！`;
+        }
+        case "extend": {
+            if (!timer && !timeStopActive) return false;
+            timeLeft = Math.min(TIMER_MAX + 10, timeLeft + p);
+            updateTimerUI();
+            return `制限時間が${p}秒のびた！`;
+        }
+        case "reroll": {
+            if (raid) generateRaidQuestion(); else generateEvolutionQuestion();
+            startTimer();
+            return "問題を入れ替えた！";
+        }
+        case "powerup": {
+            if (skillPowerMult > 1) return false;
+            skillPowerMult = p;
+            return `次の正解のダメージが${p}倍！`;
+        }
+        case "shield": {
+            if (skillShield > 0) return false;
+            skillShield = 1;
+            return "次の失敗を、1回だけ防ぐ！";
+        }
+        case "autocorrect": {
+            stopTimer();
+            for (let i = 0; i < 4; i++) { const b = document.getElementById("choice" + i); if (b) b.disabled = true; }
+            setTimeout(() => {
+                if (epoch !== skillEpoch) return;
+                if (raid) handleRaidAnswer(answer); else handleEvolutionAnswer(answer);
+            }, 500);
+            return "この問題を正解にした！";
+        }
+        default:
+            return false;
+    }
+}
+
+function useSkill(i) {
+    if (!SKILLS_ENABLED) return;
+    const subject = currentSkillSubject();
+    const sk = skillsOf(subject)[i];
+    if (!sk || (skillUsesLeft[i] || 0) <= 0 || !canUseSkillNow()) return;
+
+    const lv = currentSkillLevel(subject);
+    const msg = applySkillEffect(sk, skillPower(sk, lv));
+    if (!msg) return;                                   // 意味がない場面では、回数を消費しない
+
+    skillUsesLeft[i]--;
+    showBattleMessage(`${sk.icon} ${subjectMeta[subject].name}の「${sk.name}」！ ${msg}`);
+    const slot0 = document.getElementById("party-slot-0");
+    if (slot0) {                                        // 使ったキャラが、一瞬光る
+        slot0.classList.remove("skill-cast"); void slot0.offsetWidth; slot0.classList.add("skill-cast");
+        setTimeout(() => slot0.classList.remove("skill-cast"), 800);
+    }
+    updateSkillBarState();
 }
 
 // --- タイマー ---
@@ -964,9 +1235,10 @@ const BGM_SCENES = {
     hub:    { file: "bgm_hub.mp3",    volume: 0.5 },   // 拠点・編成・チュートリアル・名前入力・スキャン・レイドのロビー
     trial:  { file: "bgm_trial.mp3",  volume: 0.65 },  // キャラ獲得試練(元の音が小さめなので音量を上げて他の曲とそろえている)
     battle: { file: "bgm_battle.m4a", volume: 0.5 },   // 昇格戦
-    raid:   { file: "bgm_raid.mp3",   volume: 0.5 }    // レイドバトル(ロビーでは流さない)
+    raid:   { file: "bgm_raid1.mp3",  volume: 0.5 },   // レイドバトル 第一形態(ロビーでは流さない)
+    raid2:  { file: "bgm_raid2.mp3",  volume: 0.5 }    // レイドバトル 第二形態(変身の瞬間に切り替わる)
 };
-const BGM_FALLBACK = { trial: "hub", battle: "hub", raid: "battle" };   // 曲が無いときの代わり
+const BGM_FALLBACK = { trial: "hub", battle: "hub", raid: "battle", raid2: "raid" };   // 曲が無いときの代わり
 
 let bgmMuted = safeStorageGet("bgmMuted") === "1";
 let bgmUnlocked = false;      // 最初のタップのあとに true
@@ -1112,7 +1384,11 @@ function showOnlyThisScreen(screenId) {
     if (fixedArea) fixedArea.style.display = (screenId === "hub-screen") ? "block" : "none";
     // レイドのときだけ、ボスを大きく左寄りに表示するレイアウトにする
     const bf = document.getElementById("battlefield");
-    if (bf) bf.classList.toggle("raid-mode", screenId === "battle-screen" && currentBattleMode === "raid");
+    if (bf) {
+        const isRaid = screenId === "battle-screen" && currentBattleMode === "raid";
+        bf.classList.toggle("raid-mode", isRaid);
+        if (!isRaid) bf.classList.remove("raid-phase2");
+    }
     updateBgmForScreen(screenId);
 }
 // ==========================================
@@ -1290,10 +1566,40 @@ function closePartyScreen() {
 }
 
 // バトル画面のパーティ表示欄を更新する。activeSubjectが実際に問題に答えている(HPが動く)キャラ
+// ==========================================
+// 🎲 正解したときに攻撃するキャラ: 画面に出ている味方の中から、同じ確率でランダムに1体
+//   ・攻撃ポーズ・セリフは、選ばれたキャラのもの。ダメージは、これまでどおり先頭のキャラの強さで計算する
+// ==========================================
+const RANDOM_ATTACKER_ENABLED = true;   // false にすると、いつも先頭のキャラが攻撃する
+let battlePartySlots = [];              // いま画面に出ている味方(最大4体)
+let lastAttacker = null;                // 直前に攻撃したキャラ(確認用)
+
+const ATTACK_USES_ATTACKER_STATS = true;   // true: 攻撃したキャラ自身のレベルの強さでダメージを計算 / false: いつも先頭のキャラの強さ
+
+// 攻撃したキャラの、攻撃力(Lv1=100 / Lv2=150 / Lv3=200)。leadStats は、先頭のキャラの強さ(false のときに使う)
+function attackPowerOf(subject, leadStats) {
+    if (!ATTACK_USES_ATTACKER_STATS) return leadStats.attack;
+    const d = characterLevels[subject];
+    return getPlayerStats(Math.max(1, d ? d.level : 1)).attack;
+}
+
+function pickAttacker(lead) {
+    let attacker = lead;
+    if (RANDOM_ATTACKER_ENABLED && battlePartySlots.length > 0) {
+        attacker = battlePartySlots[Math.floor(Math.random() * battlePartySlots.length)];
+    }
+    lastAttacker = attacker;
+    return attacker;
+}
+
 function renderPartyDisplay(activeSubject) {
     // 表示する4枠を決定：先頭にactiveSubjectを置き、残りをplayerPartyから埋める(重複除外)
     let slots = [activeSubject, ...playerParty.filter(s => s !== activeSubject)];
     slots = slots.slice(0, 4);
+    // レイドで覚醒したあとは、残った1体だけを表示する
+    if (currentBattleMode === "raid" && raidStage === "awakened") slots = [activeSubject];
+
+    battlePartySlots = slots.filter(sub => sub && subjectMeta[sub]);   // いま画面に出ている味方(攻撃するキャラの候補)
 
     lastActiveHp = null;   // 新しい戦闘の開始。次のHP更新を「満タン」の基準にする
     const hpFloatEl = document.getElementById("party-slot-0-hpfloat");
@@ -1306,6 +1612,7 @@ function renderPartyDisplay(activeSubject) {
         const nameEl = document.getElementById(`party-slot-${i}-name`);
         const barEl = document.getElementById(`party-slot-${i}-hpbar`);
         if (!slotEl) continue;
+        slotEl.classList.remove("vanished", "survivor", "awakened");
 
         if (subject && subjectMeta[subject]) {
             slotEl.style.display = "flex";
@@ -1818,7 +2125,6 @@ function startEvolutionBattle() {
     evolutionPlayerHearts = stats.hearts;
     evolutionPlayerMaxHearts = stats.hearts;
     lastActiveHp = null;   // 前回の戦闘のHPを引き継がない
-    skillUsed = false;
 
     evolutionWaves = buildEvolutionWaves(lv, stats);
     evolutionWaveIndex = 0;
@@ -1858,6 +2164,7 @@ function generateEvolutionQuestion() {
         if (btn) {
             btn.innerText = evolutionQuestion.choices[i];
             btn.disabled = false;
+            btn.style.opacity = "1";
             btn.style.background = "#333";
             btn.style.borderColor = "#666";
         }
@@ -1896,13 +2203,15 @@ function preloadAttackArt(subject) {
 
 // index.html が古いままでも動くように、攻撃ポーズに必要な要素が無ければ自分で作る(保険)
 function ensureAttackPoseElements() {
-    const wrap = document.getElementById("party-slot-0-wrap");
-    if (wrap && !document.getElementById("party-slot-0-attackart")) {
-        const art = document.createElement("img");
-        art.id = "party-slot-0-attackart";
-        art.className = "party-attack-art";
-        art.alt = "";
-        wrap.appendChild(art);
+    for (let i = 0; i < 4; i++) {
+        const w = document.getElementById(`party-slot-${i}-wrap`);
+        if (w && !document.getElementById(`party-slot-${i}-attackart`)) {
+            const a = document.createElement("img");
+            a.id = `party-slot-${i}-attackart`;
+            a.className = "party-attack-art";
+            a.alt = "";
+            w.appendChild(a);
+        }
     }
     const field = document.getElementById("battlefield");
     if (field && !document.getElementById("attack-dim")) {
@@ -1931,8 +2240,14 @@ function showAttackDebug(lines) {
 function playAttackPose(subject) {
     if (!ATTACK_POSE_ENABLED) return;
     ensureAttackPoseElements();
-    const wrap = document.getElementById("party-slot-0-wrap");
-    const art = document.getElementById("party-slot-0-attackart");
+    let slotIdx = battlePartySlots.indexOf(subject);   // 攻撃するキャラが、左の何番目に立っているか
+    if (slotIdx < 0) slotIdx = 0;
+    for (let i = 0; i < 4; i++) {                        // 前の攻撃ポーズが残っていれば、先に戻す
+        const w = document.getElementById(`party-slot-${i}-wrap`);
+        if (w && i !== slotIdx) w.classList.remove("attacking");
+    }
+    const wrap = document.getElementById(`party-slot-${slotIdx}-wrap`);
+    const art = document.getElementById(`party-slot-${slotIdx}-attackart`);
     const dim = document.getElementById("attack-dim");
     const file = getAttackArtFile(subject);
 
@@ -2095,19 +2410,22 @@ function handleEvolutionAnswer(selectedIndex) {
 
     if (selectedIndex === evolutionQuestion.answer) {
         // 正解 → 笑顔
-        evolutionBossHp = Math.max(0, evolutionBossHp - stats.attack);
+        const attacker = pickAttacker(evolutionSubject);          // 出撃している味方の中から、ランダムで1体が攻撃する
+        const dmg = takeSkillDamage(attackPowerOf(attacker, stats));   // 攻撃したキャラ自身の強さ + スキル(powerup)の倍率
+        evolutionBossHp = Math.max(0, evolutionBossHp - dmg);
         flashScreen("correct");
-        showBattleMessage(`✅ 正解！ ${getRandomAttackLine(evolutionSubject)} ${stats.attack} ダメージ！`);
-        playSpriteState(evolutionSubject, "attack");
-        playAttackPose(evolutionSubject);
+        showBattleMessage(`✅ 正解！ ${subjectMeta[attacker].name}の攻撃！ ${getRandomAttackLine(attacker)} ${dmg} ダメージ！`);
+        if (attacker === evolutionSubject) playSpriteState(evolutionSubject, "attack");   // ドット絵の切り替えは、先頭のキャラのときだけ
+        playAttackPose(attacker);
 
         const correctBtn = document.getElementById("choice" + selectedIndex);
         if (correctBtn) { correctBtn.style.background = "#004400"; correctBtn.style.borderColor = "#00ff00"; }
     } else {
         // 不正解 → ショック
-        evolutionPlayerHearts--;
+        const shielded = takeSkillShield();           // スキル(shield)があれば、ハートは減らない
+        if (!shielded) evolutionPlayerHearts--;
         flashScreen("wrong");
-        showBattleMessage(`❌ 不正解！ ハートが1つ減った！`);
+        showBattleMessage(shielded ? "🛡️ 不正解！ でも、シールドでハートは減らなかった！" : `❌ 不正解！ ハートが1つ減った！`);
         playSpriteState(evolutionSubject, "hurt");
 
         const wrongBtn = document.getElementById("choice" + selectedIndex);
@@ -2189,9 +2507,10 @@ function updateTimerUI() {
 function onTimeUp() {
     // 時間切れ → ハート1個減
     if (currentBattleMode === "evolution") {
-        evolutionPlayerHearts--;
+        const shielded = takeSkillShield();           // スキル(shield)があれば、ハートは減らない
+        if (!shielded) evolutionPlayerHearts--;
         flashScreen("wrong");
-        showBattleMessage("⌛ 時間切れ！ ハートが1つ減った！");
+        showBattleMessage(shielded ? "🛡️ 時間切れ！ でも、シールドでハートは減らなかった！" : "⌛ 時間切れ！ ハートが1つ減った！");
         playSpriteState(evolutionSubject, "hurt");
 
         updateEvolutionUI();
@@ -2207,9 +2526,11 @@ function onTimeUp() {
             }
         }, 1500);
     } else if (currentBattleMode === "raid") {
-        raidPlayerHearts--;
+        if (raidStage !== "normal") return;          // 負けイベ・覚醒中は、時間切れにならない
+        const shielded = takeSkillShield();           // スキル(shield)があれば、ハートは減らない
+        if (!shielded) raidPlayerHearts--;
         flashScreen("wrong");
-        showBattleMessage("⌛ 時間切れ！ ハートが1つ減った！");
+        showBattleMessage(shielded ? "🛡️ 時間切れ！ でも、シールドでハートは減らなかった！" : "⌛ 時間切れ！ ハートが1つ減った！");
         playSpriteState(raidFighter, "hurt");
 
         for (let i = 0; i < 4; i++) {
@@ -2226,43 +2547,13 @@ function onTimeUp() {
             if (raidPlayerHearts <= 0) {
                 alert("💀 あなたは力尽きた…\n他の仲間の活躍を見守ろう！拠点に戻ります。");
                 endBattle();
-            } else {
+            } else if (raidStage === "normal") {     // 第二形態の演出に入っていたら、次の問題は出さない
                 playSpriteState(raidFighter, "idle");
                 generateRaidQuestion();
                 startTimer();
             }
         }, 1500);
     }
-}
-
-// ==========================================
-// ⏰ 時間停止スキル
-// ==========================================
-function useTimeStop() {
-    if (!SKILLS_ENABLED) return;
-    if (skillUsed) return;
-    skillUsed = true;
-
-    const lv = currentBattleMode === "raid"
-        ? Math.max(1, characterLevels[raidFighter].level)
-        : (characterLevels[evolutionSubject] ? characterLevels[evolutionSubject].level : 1);
-    const stats = getPlayerStats(lv);
-    const stopSec = stats.stopSec;
-
-    timeStopActive = true;
-    updateTimerUI();
-    showBattleMessage(`⏰ 時間停止！ ${stopSec}秒間タイマーが止まる！`);
-    setBattlePlayerImg(currentBattleMode === "raid" ? getBattleSpriteFile(raidFighter, "serious") : getBattleSpriteFile(evolutionSubject, "serious"));
-
-    const skillBtn = document.getElementById("skill-timestop-btn");
-    if (skillBtn) { skillBtn.disabled = true; skillBtn.style.opacity = "0.4"; }
-
-    setTimeout(() => {
-        timeStopActive = false;
-        updateTimerUI();
-        showBattleMessage("▶️ 時間が動き出した！");
-        setBattlePlayerImg(currentBattleMode === "raid" ? getBattleSpriteFile(raidFighter, "normal") : getBattleSpriteFile(evolutionSubject, "normal"));
-    }, stopSec * 1000);
 }
 
 // ==========================================
@@ -2720,6 +3011,9 @@ function detachRaidListeners() {
     raidStatusListenerAttached = false;
     raidActive = false;
     raidInLobby = false;
+    raidEventToken++;                                // 予約済みの第二形態イベントを無効にする
+    raidStage = "normal";
+    clearRaidEventClasses();
 }
 
 function leaveLobby() {
@@ -2759,11 +3053,16 @@ function enterRaidBattle() {
     raidPlayerMaxHearts = stats.hearts;
     lastActiveHp = null;   // 前回の戦闘のHPを引き継がない
 
-    const bossNameEl = document.getElementById("boss-name");
-    if (bossNameEl) bossNameEl.innerText = "共闘レイドボス";
-
-    const bossImg = document.getElementById("boss-img");
-    if (bossImg) { bossImg.style.display = "block"; bossImg.src = "raid-boss.png"; }
+    raidPhase = 1;
+    raidPhaseChecked = false;
+    raidStage = "normal";
+    raidSurvivor = null;
+    raidEventToken++;                                // 前回の予約済みの演出を無効にする
+    raidDeployed = [raidFighter, ...playerParty.filter(sub => sub !== raidFighter)].slice(0, 4);   // 画面の左に並ぶ出撃キャラ
+    setRaidBossForm(1, false);                       // 第一形態の姿・名前から始める
+    const preloadP2 = new Image(); preloadP2.src = RAID_BOSS_IMG_P2;   // 変身の瞬間に遅れないよう先読み
+    const p2Audio = bgmGetAudio("raid2");            // 第二形態の曲も先に読み込み始める(変身の瞬間に無音にならないように)
+    if (p2Audio) { try { p2Audio.load(); } catch (e) {} }
 
     setupSkillBar(stats);
 
@@ -2791,12 +3090,207 @@ function updateRaidHeartsUI() {
     updateActivePartyHpBar(raidPlayerHearts, raidPlayerMaxHearts);
 }
 
+// ==========================================
+// 👹 レイドボスの第二形態
+//   ボスのHPが一定の割合以下になると、全員の画面で第二形態に変身する(HPは全員で共通なので、みんな同じタイミング)
+//   画像は index.html と同じ場所に置く(第二形態: raid-boss2.webp)
+// ==========================================
+const RAID_PHASE2_RATIO = 0.5;                       // HPが何割以下で変身するか(0.5 = 半分)
+const RAID_BOSS_IMG_P1 = "raid-boss.png";
+const RAID_BOSS_IMG_P2 = "raid-boss2.webp";
+const RAID_BOSS_NAME_P1 = "共闘レイドボス";
+const RAID_BOSS_NAME_P2 = "共闘レイドボス【第二形態】";
+let raidPhase = 1;
+let raidPhaseChecked = false;                        // 入室後、最初のHP更新かどうか
+
+// 変身の演出に使う全画面フラッシュ(無ければ作る)
+function ensurePhaseFlash() {
+    let el = document.getElementById("phase-flash");
+    if (!el) {
+        const field = document.getElementById("battlefield");
+        if (!field) return null;
+        el = document.createElement("div");
+        el.id = "phase-flash";
+        el.setAttribute("aria-hidden", "true");
+        field.appendChild(el);
+    }
+    return el;
+}
+
+// phase: 1 or 2 / withEffect: true なら変身の演出つき
+function setRaidBossForm(phase, withEffect) {
+    const field = document.getElementById("battlefield");
+    const nameEl = document.getElementById("boss-name");
+    const img = document.getElementById("boss-img");
+    const wrap = document.getElementById("boss-img-wrap");
+
+    const apply = () => {
+        if (img) { img.style.display = "block"; img.src = (phase === 2) ? RAID_BOSS_IMG_P2 : RAID_BOSS_IMG_P1; }
+        if (nameEl) nameEl.innerText = (phase === 2) ? RAID_BOSS_NAME_P2 : RAID_BOSS_NAME_P1;
+        if (field) field.classList.toggle("raid-phase2", phase === 2);
+        setBgmScene(phase === 2 ? "raid2" : "raid");     // 第一形態/第二形態の曲を、姿と同時に切り替える
+    };
+    if (!withEffect) { apply(); return; }
+
+    showBattleMessage("⚠️ ボスが第二形態に変身した！");
+    const flash = ensurePhaseFlash();
+    if (flash) { flash.classList.remove("on"); void flash.offsetWidth; flash.classList.add("on"); }
+    if (field) {
+        field.classList.remove("phase-shake"); void field.offsetWidth; field.classList.add("phase-shake");
+        setTimeout(() => field.classList.remove("phase-shake"), 900);
+    }
+    setTimeout(() => {                       // フラッシュで画面が白く光った瞬間に姿を入れ替える
+        apply();
+        if (wrap) { wrap.classList.remove("phase-pop"); void wrap.offsetWidth; wrap.classList.add("phase-pop"); }
+    }, 280);
+    setTimeout(() => { if (flash) flash.classList.remove("on"); if (wrap) wrap.classList.remove("phase-pop"); }, 1100);
+}
+
+// ==========================================
+// ⚔️ 第二形態イベント: 負けイベ → 覚醒(勝ちイベ)    ※各自の画面で、自分のパーティについて起きる
+//   1) 変身のあと、出撃しているキャラの中から1体を「全員同じ確率」で選び、ほかは消滅する
+//   2) 残った1体が覚醒する。以降は、どの選択肢を選んでも必ず正解になる(タイマーも止まる)
+//   3) 覚醒の一撃は大ダメージ。ボスのHPが0になると、全員で勝利して終わる
+//   ・変身したあとに入室した人は、負けイベを飛ばして、最初から覚醒した状態で始まる
+// ==========================================
+const RAID_AWAKEN_DAMAGE_RATIO = 0.1;    // 覚醒の一撃のダメージ = ボス最大HPのこの割合(0.1 = 1割)
+const RAID_EVENT_START_DELAY_MS = 1800;  // 変身の演出が落ち着いてから、負けイベを始めるまでの待ち時間
+const RAID_EVENT_STEP_MS = 1100;         // 仲間が消滅していく間隔
+let raidStage = "normal";                // "normal"(通常) / "loss"(負けイベ中) / "awakened"(覚醒中)
+let raidEventToken = 0;                  // 退出・再入室のとき、予約済みの演出を無効にするための番号
+let raidSurvivor = null;                 // 残った1体
+let raidDeployed = [];                   // 出撃しているキャラ(画面の左に並ぶ最大4体)
+
+function raidEventLater(token, ms, fn) {
+    setTimeout(() => { if (raidActive && token === raidEventToken) fn(); }, ms);
+}
+
+function lockRaidChoices(disabled) {
+    for (let i = 0; i < 4; i++) {
+        const btn = document.getElementById("choice" + i);
+        if (btn) btn.disabled = disabled;
+    }
+}
+
+// タイマー欄に、状態の表示を出す(負けイベ中・覚醒中はタイマーを使わない)
+function setSpecialTimerUI(text, color) {
+    const t = document.getElementById("battle-timer");
+    const b = document.getElementById("battle-timer-bar");
+    if (t) t.innerText = text;
+    if (b) { b.style.width = "100%"; b.style.background = color; }
+}
+
+function clearRaidEventClasses() {
+    for (let i = 0; i < 4; i++) {
+        const el = document.getElementById(`party-slot-${i}`);
+        if (el) el.classList.remove("vanished", "survivor", "awakened");
+    }
+}
+
+function raidGoldFlash() {
+    const flash = ensurePhaseFlash();
+    if (!flash) return;
+    flash.classList.add("gold");
+    flash.classList.remove("on"); void flash.offsetWidth; flash.classList.add("on");
+    setTimeout(() => flash.classList.remove("gold"), 1200);
+}
+
+// 覚醒: 残った1体だけが画面に残り、金色に光る。ここから問題は「必ず正解」になる
+function awakenRaidSurvivor(token, withScript) {
+    raidStage = "awakened";
+    raidFighter = raidSurvivor;
+    clearRaidEventClasses();
+    setBattleCharacterDisplay(raidFighter);          // 残った1体だけを表示(raidStage が awakened なので、控えは出ない)
+    refreshSkillBarForSubject();                     // スキル欄も、残った1体のものにする(覚醒中は使えない)
+    const slot0 = document.getElementById("party-slot-0");
+    if (slot0) slot0.classList.add("awakened");
+
+    const lv = Math.max(1, characterLevels[raidFighter].level);
+    const stats = getPlayerStats(lv);
+    raidPlayerHearts = stats.hearts;                 // 覚醒で全回復(覚醒中は、もう間違えない)
+    raidPlayerMaxHearts = stats.hearts;
+    updateRaidHeartsUI();
+
+    setSpecialTimerUI("✨ 覚醒中 ― 必ず正解！", "#ffcc33");
+    const name = subjectMeta[raidFighter].name;
+    if (withScript) {
+        raidGoldFlash();
+        showBattleMessage(`✨ ${name}が覚醒した！ どんな問題も必ず正解になる！`);
+    } else {
+        showBattleMessage(`✨ 覚醒した${name}で戦おう！ どんな問題も必ず正解になる！`);
+    }
+    raidEventLater(token, withScript ? 2000 : 900, () => {
+        generateRaidQuestion();                      // タイマーは動かさない
+    });
+}
+
+function startRaidSecondPhaseEvent(lateJoin) {
+    const token = ++raidEventToken;
+    stopTimer();
+    lockRaidChoices(true);
+
+    // 変身したあとに入室した人: 負けイベは飛ばして、すぐ覚醒した状態で始める
+    if (lateJoin) {
+        raidSurvivor = raidFighter;
+        awakenRaidSurvivor(token, false);
+        return;
+    }
+
+    raidStage = "loss";
+    setSpecialTimerUI("⚠ 第二形態", "#cc3355");
+
+    const deployed = raidDeployed.slice();
+    // 出撃しているキャラから、全員同じ確率で1体だけ残す
+    raidSurvivor = deployed[Math.floor(Math.random() * deployed.length)];
+    const vanishing = deployed.filter(sub => sub !== raidSurvivor);
+    const survivorName = subjectMeta[raidSurvivor].name;
+
+    let t = RAID_EVENT_START_DELAY_MS;
+    raidEventLater(token, t, () => showBattleMessage("…第二形態の圧倒的な力が、仲間たちを飲み込んでいく！"));
+    t += 1600;
+
+    vanishing.forEach(sub => {
+        raidEventLater(token, t, () => {
+            const idx = raidDeployed.indexOf(sub);
+            const el = document.getElementById(`party-slot-${idx}`);
+            if (el) el.classList.add("vanished");
+            flashScreen("wrong");
+            showBattleMessage(`💨 ${subjectMeta[sub].name}が消滅した…`);
+        });
+        t += RAID_EVENT_STEP_MS + 300;
+    });
+
+    raidEventLater(token, t, () => {
+        const idx = raidDeployed.indexOf(raidSurvivor);
+        const el = document.getElementById(`party-slot-${idx}`);
+        if (el) el.classList.add("survivor");
+        showBattleMessage(vanishing.length
+            ? `…残されたのは、${survivorName}だけだ。`
+            : `${survivorName}は、たった一人でも立ち向かう…`);
+    });
+    t += 2200;
+
+    raidEventLater(token, t, () => awakenRaidSurvivor(token, true));
+}
+
+function checkRaidPhase(hp, maxHp) {
+    const reached = hp > 0 && hp <= maxHp * RAID_PHASE2_RATIO;
+    const first = !raidPhaseChecked;
+    raidPhaseChecked = true;
+    if (raidPhase >= 2 || !reached) return;
+    raidPhase = 2;
+    // 入室した時点ですでに第二形態の段階なら、変身の演出は出さず、そのまま第二形態の姿にする
+    setRaidBossForm(2, !first);
+    startRaidSecondPhaseEvent(first);
+}
+
 function updateRaidBossUI(hp) {
     const bossHpEl = document.getElementById("boss-hp");
     if (bossHpEl) bossHpEl.innerText = hp;
     const maxHp = window.__raidMaxBossHp || 100000;
     const bossBarEl = document.getElementById("boss-hp-bar");
     if (bossBarEl) bossBarEl.style.width = `${Math.max(0, (hp / maxHp) * 100)}%`;
+    checkRaidPhase(hp, maxHp);
 }
 
 function generateRaidQuestion() {
@@ -2810,6 +3304,7 @@ function generateRaidQuestion() {
         if (btn) {
             btn.innerText = raidQuestion.choices[i];
             btn.disabled = false;
+            btn.style.opacity = "1";
             btn.style.background = "#333";
             btn.style.borderColor = "#666";
         }
@@ -2818,6 +3313,7 @@ function generateRaidQuestion() {
 
 function handleRaidAnswer(selectedIndex) {
     stopTimer();
+    if (raidStage === "loss") return;                // 負けイベ中は、回答を受け付けない
 
     const lv = Math.max(1, characterLevels[raidFighter].level);
     const stats = getPlayerStats(lv);
@@ -2827,21 +3323,48 @@ function handleRaidAnswer(selectedIndex) {
         if (btn) btn.disabled = true;
     }
 
-    if (selectedIndex === raidQuestion.answer) {
+    // ✨ 覚醒中: どの選択肢を選んでも、必ず正解になる(大ダメージ)
+    if (raidStage === "awakened") {
+        const maxHp = window.__raidMaxBossHp || 100000;
+        const dmg = Math.max(stats.attack, Math.ceil(maxHp * RAID_AWAKEN_DAMAGE_RATIO));
         flashScreen("correct");
-        showBattleMessage(`✅ 正解！ ${getRandomAttackLine(raidFighter)} ${stats.attack} ダメージ！`);
+        showBattleMessage(`✨ 覚醒の力！ どんな答えも正解になる！ ${dmg} ダメージ！`);
+        const attacker = pickAttacker(raidFighter);                // 覚醒後の候補は残った1体だけなので、必ずその1体が攻撃する
         playSpriteState(raidFighter, "attack");
-        playAttackPose(raidFighter);
+        playAttackPose(attacker);
+
+        const pickedBtn = document.getElementById("choice" + selectedIndex);
+        if (pickedBtn) { pickedBtn.style.background = "#004400"; pickedBtn.style.borderColor = "#00ff00"; }
+
+        db.ref("raid/bossHp").transaction(hp => (hp == null ? hp : Math.max(0, hp - dmg)));
+
+        const token = raidEventToken;
+        raidEventLater(token, 1300, () => {
+            if (raidStage !== "awakened") return;
+            playSpriteState(raidFighter, "idle");
+            generateRaidQuestion();                  // タイマーは動かさない
+        });
+        return;
+    }
+
+    if (selectedIndex === raidQuestion.answer) {
+        const attacker = pickAttacker(raidFighter);                // 出撃している味方の中から、ランダムで1体が攻撃する
+        const dmg = takeSkillDamage(attackPowerOf(attacker, stats));   // 攻撃したキャラ自身の強さ + スキル(powerup)の倍率
+        flashScreen("correct");
+        showBattleMessage(`✅ 正解！ ${subjectMeta[attacker].name}の攻撃！ ${getRandomAttackLine(attacker)} ${dmg} ダメージ！`);
+        if (attacker === raidFighter) playSpriteState(raidFighter, "attack");   // ドット絵の切り替えは、先頭のキャラのときだけ
+        playAttackPose(attacker);
 
         const correctBtn = document.getElementById("choice" + selectedIndex);
         if (correctBtn) { correctBtn.style.background = "#004400"; correctBtn.style.borderColor = "#00ff00"; }
 
         // みんなで共有しているボスHPを実際に削る(トランザクションで安全に減算)
-        db.ref("raid/bossHp").transaction(hp => (hp == null ? hp : Math.max(0, hp - stats.attack)));
+        db.ref("raid/bossHp").transaction(hp => (hp == null ? hp : Math.max(0, hp - dmg)));
     } else {
-        raidPlayerHearts--;
+        const shielded = takeSkillShield();           // スキル(shield)があれば、ハートは減らない
+        if (!shielded) raidPlayerHearts--;
         flashScreen("wrong");
-        showBattleMessage("❌ 不正解！ ハートが1つ減った！");
+        showBattleMessage(shielded ? "🛡️ 不正解！ でも、シールドでハートは減らなかった！" : "❌ 不正解！ ハートが1つ減った！");
         playSpriteState(raidFighter, "hurt");
 
         const wrongBtn = document.getElementById("choice" + selectedIndex);
@@ -2857,7 +3380,7 @@ function handleRaidAnswer(selectedIndex) {
         if (raidPlayerHearts <= 0) {
             alert("💀 あなたは力尽きた…\n他の仲間の活躍を見守ろう！拠点に戻ります。");
             endBattle();
-        } else {
+        } else if (raidStage === "normal") {         // 第二形態の演出に入っていたら、次の問題は出さない
             playSpriteState(raidFighter, "idle");
             generateRaidQuestion();
             startTimer();
@@ -2869,7 +3392,11 @@ function onRaidVictory() {
     if (!raidActive) return; // 二重発火防止
     raidActive = false;
     stopTimer();
-    alert(`🎉 レイドボス討伐成功！みんなの協力で勝利した！\nナイスファイト、${playerCallName()}！`);
+    if (raidStage === "awakened" && raidSurvivor) {
+        alert(`🎉 ${subjectMeta[raidSurvivor].name}の覚醒の一撃で、ボスは倒れた！\n…すべてが終わった。\nナイスファイト、${playerCallName()}！`);
+    } else {
+        alert(`🎉 レイドボス討伐成功！みんなの協力で勝利した！\nナイスファイト、${playerCallName()}！`);
+    }
     // 全員が抜けた時点で resetRaidIfEmpty が初期化する。取り残しは次のロビー入室時にも掃除される
     removeSelfFromRaidPlayers();
     backToHub();
@@ -3019,6 +3546,7 @@ function initGame() {
     console.log("initGame開始");
     ensureBossImgWrap();
     ensureAttackPoseElements();
+    setInterval(updateSkillBarState, 200);      // スキルボタンの押せる/押せないを、常に最新にする
 
     // ?reset=1 を付けて開くと、セーブデータを消して最初から始められる(テスト・展示用)
     try {

@@ -768,20 +768,37 @@ body {
 
 
 /* ==========================================
-   ⚔️ 第二形態イベント: 倒れる仲間 / 残った1体 / 覚醒
+   ⚔️ 第二形態イベント: 消滅する仲間 / 残った1体 / 覚醒
    ========================================== */
-/* 倒れた仲間: 色が抜けて、横に倒れる */
-.party-slot.downed .party-char-wrap {
-    animation: member-fall 0.9s ease-in forwards;
+/* 消滅する仲間: 白く光って、光の粒になるように、ふわっと消える */
+.party-slot.vanished .party-char-wrap {
+    animation: member-vanish 1s ease-in forwards;
 }
-.party-slot.downed .party-slot-name {
-    color: #777;
-    text-decoration: line-through;
+.party-slot.vanished .party-char-wrap::after {          /* 消える瞬間の、光のはじけ */
+    content: "";
+    position: absolute;
+    top: -20%;
+    left: -20%;
+    width: 140%;
+    height: 140%;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.95) 0%, rgba(190, 150, 255, 0.55) 40%, rgba(190, 150, 255, 0) 70%);
+    pointer-events: none;
+    animation: vanish-burst 1s ease-out forwards;
 }
-@keyframes member-fall {
-    0%   { transform: rotate(0) translateY(0); filter: none; opacity: 1; }
-    35%  { transform: rotate(-12deg) translateY(-6px); filter: brightness(1.8); opacity: 1; }
-    100% { transform: rotate(-82deg) translate(-6px, 14px); filter: grayscale(1) brightness(0.45); opacity: 0.55; }
+.party-slot.vanished .party-slot-name {
+    opacity: 0;
+    transition: opacity 0.5s ease-in 0.35s;
+}
+@keyframes member-vanish {
+    0%   { opacity: 1; filter: none; transform: scale(1) translateY(0); }
+    28%  { opacity: 1; filter: brightness(3.2) saturate(0.15); transform: scale(1.06) translateY(-2px); }
+    100% { opacity: 0; filter: brightness(4) blur(7px); transform: scale(1.28) translateY(-20px); }
+}
+@keyframes vanish-burst {
+    0%   { opacity: 0; transform: scale(0.4); }
+    28%  { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.7); }
 }
 
 /* 最後に立っている1体: ほのかに白く光る */
