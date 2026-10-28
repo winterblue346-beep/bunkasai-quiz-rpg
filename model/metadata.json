@@ -1,1 +1,1 @@
-{"tfjsVersion":"1.7.4","tmVersion":"2.4.18","packageVersion":"0.8.4-alpha2","packageName":"@teachablemachine/image","timeStamp":"2026-10-28T01:50:24.428Z","userMetadata":{},"modelName":"image モデル","labels":["かえで正門","さつき正門","さつき校舎","図書館","廣池銅像","あすなろ前の像","あすなろ内廣池銅像","背景"],"imageSize":224}
+{"tfjsVersion":"1.7.4","tmVersion":"2.4.18","packageVersion":"0.8.4-alpha2","packageName":"@teachablemachine/image","timeStamp":"2026-10-28T03:28:25.344Z","userMetadata":{},"modelName":"image モデル","labels":["かえで正門","さつき正門","さつき校舎","図書館","廣池銅像","あすなろ前の像","あすなろ内廣池銅像","背景"],"imageSize":224}
