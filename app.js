@@ -60,6 +60,7 @@ let evolutionBossMaxHp = 500;
 let evolutionPlayerHearts = 5;
 let evolutionPlayerMaxHearts = 5;
 let evolutionQuestion = null;
+let evolutionUsedQuestionKeys = new Set();   // この昇格戦で、すでに出した問題
 
 // ==========================================
 // ⭐ キャラ別スキル(戦っている先頭のキャラの、スキルがボタンに並ぶ。最大4つ)
@@ -76,7 +77,7 @@ let evolutionQuestion = null;
 //       beam     … 攻撃+ハート回復。power=攻撃力の何倍か / heal=回復するハート
 //       slash    … 攻撃+切り傷。power=攻撃力の何倍か / turns=切り傷の続く問題数(その間、敵の攻撃が半減)
 //       block    … turns 問のあいだ、間違えても(時間切れでも)ダメージを受けない(行動阻害)
-//       teamGuard… turns 問のあいだ、ダメージ無効(全体防御)
+//       teamGuard… turns 問のあいだ、ダメージ無効(全体防御。効果は自分だけ。他の参加者には及ばない)
 //       reflect  … turns 問のあいだ、受けるはずのダメージを無効にして、reflectDamage をボスに反射する
 //       poison   … turns 問のあいだ、1問ごとに dot ダメージをボスに与える
 //       (以前の型) timestop / hint / heal / extend / reroll / powerup / shield / autocorrect も使える
@@ -103,7 +104,7 @@ const CHARACTER_SKILLS = {
     "歴史": [   // 大和誠: 抜刀による攻撃とデバフ(相手は切り傷を得て、相手の攻撃が半減)
         { name: "抜刀", icon: "⚔️", type: "slash", power: [2, 2.5, 3], turns: 3, uses: 1 }
     ],
-    "地理": [   // 伊能大地: 全体防御(全体で3ターン、ダメージ無効)
+    "地理": [   // 伊能大地: 全体防御(3問のあいだ、ダメージ無効。自分だけに効く)
         { name: "全体防御", icon: "🌍", type: "teamGuard", turns: 3, uses: 1 }
     ]
 };
@@ -143,7 +144,7 @@ function skillShortEffect(sk, lv) {
         case "beam":        return `×${p} 回復${lvPick(sk.heal, lv)}`;
         case "slash":       return `×${p} 敵の攻撃半減`;
         case "block":       return `${lvPick(sk.turns, lv)}問 ダメージ無効`;
-        case "teamGuard":   return `全体${lvPick(sk.turns, lv)}問 無効`;
+        case "teamGuard":   return `${lvPick(sk.turns, lv)}問 無効`;
         case "reflect":     return `${lvPick(sk.turns, lv)}問 反射`;
         case "poison":      return `毒${lvPick(sk.turns, lv)}問 -${sk.dot}/問`;
         default:            return "";
@@ -1357,11 +1358,12 @@ function generateRandomRaidQuestion() {
 // ==========================================
 const BGM_DIR = "";   // フォルダに入れる場合は "bgm/" のように書く(最後に / が必要)
 const BGM_SCENES = {
-    hub:    { file: "bgm_hub.mp3",    volume: 0.5 },   // 拠点・編成・チュートリアル・名前入力・スキャン・レイドのロビー
-    trial:  { file: "bgm_trial.mp3",  volume: 0.65 },  // キャラ獲得試練(元の音が小さめなので音量を上げて他の曲とそろえている)
+    hub:    { file: "bgm_hub.mp3",    volume: 0.4 },   // 拠点・編成・チュートリアル・名前入力・スキャン・レイドのロビー(カナリアスキップ。元の音が大きめなので音量を下げている)
+    trial:  { file: "bgm_trial.mp3",  volume: 0.55 },  // キャラ獲得試練(404_フリーズ_コード)
     battle: { file: "bgm_battle.m4a", volume: 0.5 },   // 昇格戦
     raid:   { file: "bgm_raid1.mp3",  volume: 0.5 },   // レイドバトル 第一形態(ロビーでは流さない)
-    raid2:  { file: "bgm_raid2.mp3",  volume: 0.5 }    // レイドバトル 第二形態(変身の瞬間に切り替わる)
+    raid2:  { file: "bgm_raid2.mp3",  volume: 0.5 },   // レイドバトル 第二形態(変身の瞬間に切り替わる)
+    ending: { file: "bgm_ending.mp3", volume: 0.7 }    // エンディング(雨の音。元の音が小さめなので音量を上げている)。エンディング画面の id を "ending-screen" にすれば自動で流れる。別の方法で出すなら setBgmScene("ending")
 };
 const BGM_FALLBACK = { trial: "hub", battle: "hub", raid: "battle", raid2: "raid" };   // 曲が無いときの代わり
 
@@ -1459,6 +1461,7 @@ function setBgmScene(scene) {
 function updateBgmForScreen(screenId) {
     let scene = "hub";
     if (screenId === "trial-screen") scene = "trial";
+    else if (screenId === "ending-screen") scene = "ending";
     else if (screenId === "battle-screen") scene = (currentBattleMode === "raid") ? "raid" : "battle";
     setBgmScene(scene);
 
@@ -1843,7 +1846,7 @@ function updateHubUI() {
         } else if (data.level >= 3) {
             if (badge) { badge.innerText = "Lv.3 (MAX)"; badge.style.background = "#ff1177"; }
             if (bar) bar.style.width = "100%";
-            if (txt) txt.innerText = SKILLS_ENABLED ? "✨ レベル最大 / スキル:時間停止(5秒)" : "✨ レベル最大";
+            if (txt) txt.innerText = "✨ レベル最大";
             card.className = "char-card unlocked";
         } else {
             if (badge) { badge.innerText = `Lv.${data.level}`; badge.style.background = "#0077ff"; }
@@ -1888,15 +1891,64 @@ function checkLevelUp(subject) {
 // ==========================================
 let trialQuestionPool = [];
 
+// ==========================================
+// 🔁 問題のかぶり防止(試練・昇格戦)
+//   ・1回の試練 / 1回の昇格戦のあいだは、同じ問題を出さない
+//   ・直近に出した問題(RECENT_QUESTION_LIMIT 個ぶん)も、できるだけ避ける
+//   ・問題が足りないとき(候補が尽きたとき)だけ、重複を許す
+//   ・レイドは対象外
+// ==========================================
+const RECENT_QUESTION_LIMIT = 40;     // 「直近」として覚えておく問題の数
+let recentQuestionKeys = [];          // 直近に出した問題(新しいものが後ろ)
+
+function questionKey(q) {
+    return q && q.question ? String(q.question) : "";
+}
+
+function rememberRecentQuestion(q) {
+    const key = questionKey(q);
+    if (!key) return;
+    recentQuestionKeys = recentQuestionKeys.filter(k => k !== key);
+    recentQuestionKeys.push(key);
+    if (recentQuestionKeys.length > RECENT_QUESTION_LIMIT) {
+        recentQuestionKeys = recentQuestionKeys.slice(-RECENT_QUESTION_LIMIT);
+    }
+}
+
+// makeFn() で問題を作り、除外条件に合うものを返す。
+//   第1段階: 今回すでに出した問題 + 直近の問題を避ける
+//   第2段階: 今回すでに出した問題だけ避ける(直近は許す)
+//   第3段階: 何でもOK(候補が足りないとき)
+// subject を渡すと、その教科の問題だけを採用する
+function pickFreshQuestion(makeFn, usedKeys, subject) {
+    const tryPick = (avoidRecent, avoidUsed, maxAttempts) => {
+        for (let i = 0; i < maxAttempts; i++) {
+            const q = makeFn();
+            if (!q) continue;
+            if (subject && q.subject !== subject) continue;
+            const key = questionKey(q);
+            if (avoidUsed && usedKeys.has(key)) continue;
+            if (avoidRecent && recentQuestionKeys.includes(key)) continue;
+            return q;
+        }
+        return null;
+    };
+    return tryPick(true, true, 300)
+        || tryPick(false, true, 300)
+        || tryPick(false, false, 300);
+}
+
 function buildTrialPool(subject) {
     const pool = [];
-    let attempts = 0;
-    while (pool.length < 10 && attempts < 500) {
-        attempts++;
-        const q = generateQuestionForSubject(subject);
-        if (q) pool.push(q);
+    const used = new Set();
+    for (let n = 0; n < 10; n++) {
+        const q = pickFreshQuestion(() => generateQuestionForSubject(subject), used, null);
+        if (!q) break;
+        pool.push(q);
+        used.add(questionKey(q));
     }
     trialQuestionPool = pool;
+    pool.forEach(rememberRecentQuestion);
 }
 
 function generateQuestionForSubject(subject) {
@@ -2251,6 +2303,7 @@ function startEvolutionBattle() {
     evolutionPlayerMaxHearts = stats.hearts;
     lastActiveHp = null;   // 前回の戦闘のHPを引き継がない
 
+    evolutionUsedQuestionKeys = new Set();   // 昇格戦ごとに、出題済みをリセット
     evolutionWaves = buildEvolutionWaves(lv, stats);
     evolutionWaveIndex = 0;
     loadEvolutionEnemy();
@@ -2276,10 +2329,11 @@ function updateEvolutionUI() {
 }
 
 function generateEvolutionQuestion() {
-    evolutionQuestion = generateRandomRaidQuestion();
-    while (evolutionQuestion.subject !== evolutionSubject) {
-        evolutionQuestion = generateRandomRaidQuestion();
-    }
+    evolutionQuestion = pickFreshQuestion(
+        generateRandomRaidQuestion, evolutionUsedQuestionKeys, evolutionSubject
+    ) || generateRandomRaidQuestion();
+    evolutionUsedQuestionKeys.add(questionKey(evolutionQuestion));
+    rememberRecentQuestion(evolutionQuestion);
 
     const qEl = document.getElementById("battle-question-text");
     if (qEl) qEl.innerText = evolutionQuestion.question;
@@ -2723,13 +2777,13 @@ function selectChoice(i) {
 // ⚠️ Teachable Machineで学習させた「クラス名」と「対応する教科」をここで対応付けてください。
 // クラス名はTeachable Machineで自分がつけた名前と完全に一致させる必要があります。
 const SCAN_CLASS_TO_SUBJECT = {
-    "正門": "国語",
-    "理科室": "物理",
-    "化学実験室": "化学",
+    "かえで正門": "国語",
+    "さつき正門": "物理",
+    "さつき校舎": "化学",
     "図書館": "歴史",
-    "体育館": "数学",
-    "英語教室": "英語",
-    "校庭": "地理"
+    "廣池銅像": "数学",
+    "あすなろ前の像": "英語",
+    "あすなろ内廣池銅像": "地理"
     // "背景" や "その他" のクラスはここに書かなければ自動的に無視されます
 };
 
@@ -3588,20 +3642,56 @@ Lv1：5個 / Lv2：8個 / Lv3：11個
         `
     },
     {
-        title: "⏰ スキル：時間停止",
+        title: "✨ スキル",
         content: `
-バトル中に1回だけ使えるスキルです。
+バトル中、戦っているキャラの
+スキルが、問題の下のボタンに
+並びます。
 
-📋 効果
-制限時間のカウントダウンを止める！
-
-⏱️ 停止時間
-Lv1：3秒 / Lv2：4秒 / Lv3：5秒
+📋 使い方
+・問題に答える前にタップして発動
+・使える回数はボタンに表示
+　（1回の戦闘ごとにリセット）
+・効果の残りは、スキル欄の上に表示
+・「あと◯問」は、問題に答える
+　（時間切れ含む）ごとに減る
 
 💡 ポイント
-難しい問題が出たときに使おう！
-キャラのレベルを上げると
-停止時間が長くなります。
+キャラのレベルが上がると
+強くなるスキルもあります！
+レイドの変身後イベント中は
+スキルを使えません。
+        `
+    },
+    {
+        title: "🎴 キャラ別スキル",
+        content: `
+🔥 紫鳴結月「紫炎の魔法」
+攻撃力の2〜3倍で攻撃。
+40%で会心（ダメージ2倍）。2回使える
+
+⛓️ アルゲブラ「行動阻害」
+3問のあいだ、間違えても
+ダメージを受けない
+
+✨ エルメシア「光のビーム」
+攻撃力の2〜3倍で攻撃し、
+ハートも回復
+
+🪞 ファイ「攻撃反射」
+3問のあいだ、受けるダメージを
+無効にして、敵に200ダメージを反射
+
+☠️ ルイス「毒の霧」
+4〜6問のあいだ、1問ごとに
+敵へ50ダメージ
+
+⚔️ 大和誠「抜刀」
+攻撃力の2〜3倍で攻撃し、
+3問のあいだ敵の攻撃を半減
+
+🌍 伊能大地「全体防御」
+3問のあいだ、ダメージ無効
         `
     }
 ];
