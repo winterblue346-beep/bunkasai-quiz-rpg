@@ -62,69 +62,49 @@ let evolutionPlayerMaxHearts = 5;
 let evolutionQuestion = null;
 
 // ==========================================
-// ⭐ キャラ別スキル(戦っている先頭のキャラの、スキル4つがボタンに並ぶ)
-//   ・下の CHARACTER_SKILLS に、キャラごとに最大4つ書く。中身は「仮」なので、自由に書き換えてOK
+// ⭐ キャラ別スキル(戦っている先頭のキャラの、スキルがボタンに並ぶ。最大4つ)
+//   ・下の CHARACTER_SKILLS に、キャラごとに書く
 //   ・各スキルの書き方:
 //       name  : ボタンに出る名前(5文字くらいまで)
 //       icon  : 絵文字
 //       type  : 効果の種類(下の一覧から選ぶ)
-//       power : 効果の強さ。[Lv1, Lv2, Lv3] の順に書く(レベルが上がると強くなる)
 //       uses  : 1回の戦闘で使える回数
+//       そのほか: 効果ごとの数字(下の一覧)。[Lv1, Lv2, Lv3] の配列で書くと、レベルで強くなる
+//   ・「1問」= 問題に答える(または時間切れになる)ごとに、1つ進む。使った問題から数える
 //   ・効果の種類(type):
-//       timestop    … タイマーが power 秒止まる
-//       hint        … 誤答の選択肢を power 個消す
-//       heal        … ハートが power 個回復する
-//       extend      … 制限時間が power 秒のびる
-//       reroll      … 問題を入れ替える(制限時間も戻る)
-//       powerup     … 次の正解のダメージが power 倍になる
-//       shield      … 次の不正解・時間切れを1回だけ無効にする
-//       autocorrect … 今の問題を正解にする
+//       flame    … 攻撃。power=攻撃力の何倍か / crit=クリティカルの確率 / critMult=クリティカルの倍率
+//       beam     … 攻撃+ハート回復。power=攻撃力の何倍か / heal=回復するハート
+//       slash    … 攻撃+切り傷。power=攻撃力の何倍か / turns=切り傷の続く問題数(その間、敵の攻撃が半減)
+//       block    … turns 問のあいだ、間違えても(時間切れでも)ダメージを受けない(行動阻害)
+//       teamGuard… turns 問のあいだ、ダメージ無効(全体防御)
+//       reflect  … turns 問のあいだ、受けるはずのダメージを無効にして、reflectDamage をボスに反射する
+//       poison   … turns 問のあいだ、1問ごとに dot ダメージをボスに与える
+//       (以前の型) timestop / hint / heal / extend / reroll / powerup / shield / autocorrect も使える
 //   ・第二形態のイベント中(負けイベ・覚醒中)は、スキルは使えない
 // ==========================================
 const SKILLS_ENABLED = true;   // false にすると、スキル欄は空になる
 
 const CHARACTER_SKILLS = {
-    "国語": [   // 紫鳴 結月
-        { name: "文脈読み",   icon: "🔍", type: "hint",    power: [1, 2, 2],     uses: 1 },
-        { name: "推敲の時間", icon: "⏳", type: "extend",  power: [3, 5, 7],     uses: 2 },
-        { name: "ページ送り", icon: "📖", type: "reroll",  uses: 1 },
-        { name: "破滅の魔法", icon: "💥", type: "powerup", power: [2, 2.5, 3],   uses: 1 }
+    "国語": [   // 紫鳴 結月: 紫炎の魔法で攻撃(40%でクリティカル = ダメージ2倍)
+        { name: "紫炎の魔法", icon: "🔥", type: "flame", power: [2, 2.5, 3], crit: 0.4, critMult: 2, uses: 2 }
     ],
-    "数学": [   // アルゲブラ
-        { name: "絶対零度",   icon: "⏰", type: "timestop", power: [3, 4, 5],    uses: 1 },
-        { name: "消去法",     icon: "➖", type: "hint",     power: [1, 2, 2],    uses: 1 },
-        { name: "背理法の盾", icon: "🛡️", type: "shield",   uses: 1 },
-        { name: "証明完了",   icon: "✨", type: "powerup",  power: [2, 2.5, 3],  uses: 1 }
+    "数学": [   // アルゲブラ: 敵の行動を阻害(3問のあいだ、間違えても攻撃を受けない)
+        { name: "行動阻害", icon: "⛓️", type: "block", turns: 3, uses: 1 }
     ],
-    "英語": [   // エルメシア・ルミナリア
-        { name: "祝福の歌",   icon: "🎵", type: "heal",    power: [1, 1, 2],     uses: 1 },
-        { name: "詠唱延長",   icon: "⏳", type: "extend",  power: [3, 5, 7],     uses: 2 },
-        { name: "聖なる加護", icon: "🛡️", type: "shield",  uses: 1 },
-        { name: "黄金魔法陣", icon: "💥", type: "powerup", power: [2, 2.5, 3],   uses: 1 }
+    "英語": [   // エルメシア: 光のビームで攻撃(追加効果でダメージ回復)
+        { name: "光のビーム", icon: "✨", type: "beam", power: [2, 2.5, 3], heal: [1, 1, 2], uses: 1 }
     ],
-    "物理": [   // ファイ
-        { name: "重力停止",   icon: "⏰", type: "timestop", power: [3, 4, 5],    uses: 1 },
-        { name: "慣性の法則", icon: "⏳", type: "extend",   power: [3, 5, 7],    uses: 2 },
-        { name: "引力の渦",   icon: "🌀", type: "reroll",   uses: 1 },
-        { name: "衝撃波",     icon: "💥", type: "powerup",  power: [2, 2.5, 3],  uses: 1 }
+    "物理": [   // ファイ: 攻撃反射(自分だけ)。敵の攻撃を引き付けて、ダメージをそのまま反射する
+        { name: "攻撃反射", icon: "🪞", type: "reflect", turns: 3, reflectDamage: 200, uses: 1 }
     ],
-    "化学": [   // ルイス・ジョンソン
-        { name: "触媒",       icon: "🧪", type: "hint",    power: [1, 2, 2],     uses: 1 },
-        { name: "中和",       icon: "💧", type: "heal",    power: [1, 1, 2],     uses: 1 },
-        { name: "再実験", icon: "🔁", type: "reroll", uses: 1 },
-        { name: "爆発反応",   icon: "💥", type: "powerup", power: [2.5, 3, 3.5], uses: 1 }
+    "化学": [   // ルイス: 毒のスリップダメージ(1問ごとに50ダメージ)
+        { name: "毒の霧", icon: "☠️", type: "poison", turns: [4, 5, 6], dot: 50, uses: 1 }
     ],
-    "歴史": [   // 大和誠
-        { name: "見切り",     icon: "🛡️", type: "shield",     uses: 1 },
-        { name: "年表",       icon: "🔍", type: "hint",       power: [1, 2, 2],  uses: 1 },
-        { name: "時の流れ",   icon: "⏰", type: "timestop",   power: [3, 4, 5],  uses: 1 },
-        { name: "一刀両断",   icon: "⚔️", type: "autocorrect", uses: 1 }
+    "歴史": [   // 大和誠: 抜刀による攻撃とデバフ(相手は切り傷を得て、相手の攻撃が半減)
+        { name: "抜刀", icon: "⚔️", type: "slash", power: [2, 2.5, 3], turns: 3, uses: 1 }
     ],
-    "地理": [   // 伊能大地
-        { name: "大地の恵み", icon: "🌱", type: "heal",    power: [1, 1, 2],     uses: 1 },
-        { name: "地図読み", icon: "🗺️", type: "hint",  power: [1, 2, 2],     uses: 1 },
-        { name: "行軍の余裕", icon: "⏳", type: "extend",  power: [3, 5, 7],     uses: 2 },
-        { name: "地殻変動",   icon: "💥", type: "powerup", power: [2, 2.5, 3],   uses: 1 }
+    "地理": [   // 伊能大地: 全体防御(全体で3ターン、ダメージ無効)
+        { name: "全体防御", icon: "🌍", type: "teamGuard", turns: 3, uses: 1 }
     ]
 };
 
@@ -159,6 +139,13 @@ function skillShortEffect(sk, lv) {
         case "powerup":     return `次の一撃×${p}`;
         case "shield":      return "ミス無効";
         case "autocorrect": return "正解にする";
+        case "flame":       return `×${p}${sk.crit ? ` 会心${Math.round(sk.crit * 100)}%` : ""}`;
+        case "beam":        return `×${p} 回復${lvPick(sk.heal, lv)}`;
+        case "slash":       return `×${p} 敵の攻撃半減`;
+        case "block":       return `${lvPick(sk.turns, lv)}問 ダメージ無効`;
+        case "teamGuard":   return `全体${lvPick(sk.turns, lv)}問 無効`;
+        case "reflect":     return `${lvPick(sk.turns, lv)}問 反射`;
+        case "poison":      return `毒${lvPick(sk.turns, lv)}問 -${sk.dot}/問`;
         default:            return "";
     }
 }
@@ -172,6 +159,31 @@ function getSkillRow() {
     return null;
 }
 
+// 効果の残りを表示する欄(スキル欄の上)。無ければ作る
+function ensureBattleStatus() {
+    let el = document.getElementById("battle-status");
+    if (el) return el;
+    const row = getSkillRow();
+    if (!row || !row.parentElement) return null;
+    el = document.createElement("div");
+    el.id = "battle-status";
+    row.parentElement.insertBefore(el, row);
+    return el;
+}
+
+function updateBattleStatus() {
+    const el = ensureBattleStatus();
+    if (!el) return;
+    const parts = [];
+    if (fx.block > 0)     parts.push(`⛓️ 行動阻害 あと${fx.block}問`);
+    if (fx.teamGuard > 0) parts.push(`🌍 全体防御 あと${fx.teamGuard}問`);
+    if (fx.reflect > 0)   parts.push(`🪞 反射 あと${fx.reflect}問`);
+    if (fx.poison > 0)    parts.push(`☠️ 毒 あと${fx.poison}問`);
+    if (fx.cut > 0)       parts.push(`🩸 切り傷 あと${fx.cut}問`);
+    const text = parts.join("　");
+    if (el.textContent !== text) el.textContent = text;
+}
+
 // スキルのボタンを並べ直す(戦っているキャラが変わったときにも呼ぶ)
 function renderSkillBar() {
     const row = getSkillRow();
@@ -180,7 +192,8 @@ function renderSkillBar() {
     const subject = currentSkillSubject();
     const lv = currentSkillLevel(subject);
     const list = SKILLS_ENABLED ? skillsOf(subject) : [];
-    for (let i = 0; i < 4; i++) {
+    const slotCount = list.length > 0 ? list.length : 4;   // スキルがあれば、その数だけ並べる(1つなら大きく表示)。1つも無ければ、空き枠4つ
+    for (let i = 0; i < slotCount; i++) {
         const sk = list[i];
         const btn = document.createElement("button");
         btn.className = "skill-slot" + (sk ? "" : " empty");
@@ -202,6 +215,7 @@ function setupSkillBar(stats) {
     skillEpoch++;
     skillPowerMult = 1;
     skillShield = 0;
+    clearSkillEffects();
     timeStopActive = false;
     const subject = currentSkillSubject();
     skillSubjectShown = subject;
@@ -231,6 +245,7 @@ function canUseSkillNow() {
 function updateSkillBarState() {
     const row = getSkillRow();
     if (!row) return;
+    updateBattleStatus();
     const subject = currentSkillSubject();
     const list = SKILLS_ENABLED ? skillsOf(subject) : [];
     const usable = canUseSkillNow();
@@ -252,13 +267,70 @@ function takeSkillDamage(base) {
     skillPowerMult = 1;
     return Math.round(base * m);
 }
+// ---- スキルの継続効果(残り問題数で管理する) ----
+const fx = { block: 0, teamGuard: 0, reflect: 0, reflectDmg: 0, cut: 0, poison: 0, poisonDmg: 0 };
+
+function clearSkillEffects() {
+    fx.block = 0; fx.teamGuard = 0; fx.reflect = 0; fx.reflectDmg = 0; fx.cut = 0; fx.poison = 0; fx.poisonDmg = 0;
+}
+
+function lvPick(v, lv) {   // [Lv1, Lv2, Lv3] の配列なら、レベルに合う値を / 数字ならそのまま返す
+    return Array.isArray(v) ? v[Math.min(lv, v.length) - 1] : v;
+}
+
+// ボスに、直接ダメージを与える(スキル・毒・反射用)
+function applyBossDamage(d) {
+    if (currentBattleMode === "raid") {
+        db.ref("raid/bossHp").transaction(hp => (hp == null ? hp : Math.max(0, hp - d)));   // みんなで共有しているHPを削る
+    } else {
+        evolutionBossHp = Math.max(0, evolutionBossHp - d);
+        updateEvolutionUI();
+    }
+}
+
+// 不正解・時間切れのとき、ハートがどれだけ減るかを決める(効果の優先: 無効化 > 反射 > 切り傷(半減))
+function computeMistake() {
+    if (skillShield > 0) { skillShield--; return { lost: 0, note: "🛡️ シールドで、ダメージ無効" }; }
+    if (fx.block > 0)     return { lost: 0, note: "⛓️ 行動阻害で、敵の攻撃は届かない" };
+    if (fx.teamGuard > 0) return { lost: 0, note: "🌍 全体防御で、ダメージ無効" };
+    if (fx.reflect > 0)   return { lost: 0, note: `🪞 攻撃を反射！ 敵に${fx.reflectDmg}ダメージ`, reflectDmg: fx.reflectDmg };
+    if (fx.cut > 0)       return { lost: 0.5, note: "🩸 切り傷で、敵の攻撃が半減" };
+    return { lost: 1, note: "" };
+}
+
+function mistakeText(kind, m) {   // kind: "wrong"(不正解) / "timeup"(時間切れ)
+    const head = kind === "timeup" ? "⌛ 時間切れ！" : "❌ 不正解！";
+    if (m.lost >= 1) return `${head} ハートが1つ減った！`;
+    if (m.lost > 0) return `${head} ${m.note}！ ハートが${m.lost}減った！`;
+    return `${head} ${m.note}！ ハートは減らない！`;
+}
+
+// 1問が終わるたびに呼ぶ: 毒のダメージを与えて、継続効果の残り問題数を1つ進める。メッセージに足す文字を返す
+function endQuestionTick() {
+    let note = "";
+    if (fx.poison > 0 && fx.poisonDmg > 0) {
+        applyBossDamage(fx.poisonDmg);
+        note += ` ☠️ 毒で${fx.poisonDmg}ダメージ！`;
+    }
+    ["block", "teamGuard", "reflect", "cut", "poison"].forEach(k => { if (fx[k] > 0) fx[k]--; });
+    return note;
+}
+
+// スキルでボスを倒したとき(昇格戦): 回答のあとと同じ流れ(次の敵 / 勝利)へ進める
+function evolutionSkillKill() {
+    stopTimer();
+    for (let i = 0; i < 4; i++) { const b = document.getElementById("choice" + i); if (b) b.disabled = true; }
+    const epoch = skillEpoch;
+    setTimeout(() => { if (epoch === skillEpoch) evolutionAfterTurn(); }, 1300);
+}
+
 function takeSkillShield() {
     if (skillShield > 0) { skillShield--; return true; }
     return false;
 }
 
 // スキルの効果を発動する。成功したら、メッセージ(文字列)を返す。意味がない場面なら false(回数は減らさない)
-function applySkillEffect(sk, p) {
+function applySkillEffect(sk, p, subject, lv) {
     const raid = currentBattleMode === "raid";
     const answer = raid ? raidQuestion.answer : evolutionQuestion.answer;
     const epoch = skillEpoch;
@@ -326,6 +398,59 @@ function applySkillEffect(sk, p) {
             }, 500);
             return "この問題を正解にした！";
         }
+        case "flame":
+        case "beam":
+        case "slash": {
+            // 攻撃スキル: 先頭のキャラの攻撃力 × 倍率でダメージ。問題には答えず、すぐ攻撃する
+            const base = getPlayerStats(Math.max(1, lv)).attack;
+            let dmg = Math.round(base * (p || 1));
+            let crit = false;
+            if (sk.crit && Math.random() < sk.crit) { dmg = Math.round(dmg * (sk.critMult || 2)); crit = true; }
+            let text;
+            if (sk.type === "flame") {
+                text = crit ? `💥 クリティカル！ 紫炎が敵を焼き尽くす！ ${dmg} ダメージ！` : `紫炎が敵を焼いた！ ${dmg} ダメージ！`;
+            } else if (sk.type === "beam") {
+                const heal = lvPick(sk.heal, lv) || 0;
+                const cur = raid ? raidPlayerHearts : evolutionPlayerHearts;
+                const max = raid ? raidPlayerMaxHearts : evolutionPlayerMaxHearts;
+                const gain = Math.max(0, Math.min(heal, max - cur));
+                if (gain > 0) {
+                    if (raid) { raidPlayerHearts += gain; updateRaidHeartsUI(); }
+                    else { evolutionPlayerHearts += gain; updateEvolutionUI(); }
+                }
+                text = `光のビームが敵を貫いた！ ${dmg} ダメージ！` + (gain > 0 ? ` ハートが${gain}つ回復！` : "");
+            } else {
+                const t = lvPick(sk.turns, lv) || 3;
+                fx.cut = Math.max(fx.cut, t);
+                text = `抜刀！ ${dmg} ダメージ！ 敵に切り傷を負わせ、${t}問のあいだ敵の攻撃が半減！`;
+            }
+            playAttackPose(subject);
+            applyBossDamage(dmg);
+            if (!raid && evolutionBossHp <= 0) evolutionSkillKill();      // 昇格戦で倒したら、次の敵・勝利へ
+            return text;
+        }
+        case "block": {
+            if (fx.block > 0) return false;
+            fx.block = lvPick(sk.turns, lv) || 3;
+            return `敵の行動を阻害！ ${fx.block}問のあいだ、ダメージを受けない！`;
+        }
+        case "teamGuard": {
+            if (fx.teamGuard > 0) return false;
+            fx.teamGuard = lvPick(sk.turns, lv) || 3;
+            return `全体を守る結界！ ${fx.teamGuard}問のあいだ、ダメージ無効！`;
+        }
+        case "reflect": {
+            if (fx.reflect > 0) return false;
+            fx.reflect = lvPick(sk.turns, lv) || 3;
+            fx.reflectDmg = sk.reflectDamage || 200;
+            return `敵の攻撃を引き付けた！ ${fx.reflect}問のあいだ、受けるはずのダメージを反射する！`;
+        }
+        case "poison": {
+            if (fx.poison > 0) return false;
+            fx.poison = lvPick(sk.turns, lv) || 4;
+            fx.poisonDmg = sk.dot || 50;
+            return `毒の霧！ ${fx.poison}問のあいだ、1問ごとに${fx.poisonDmg}ダメージ！`;
+        }
         default:
             return false;
     }
@@ -338,7 +463,7 @@ function useSkill(i) {
     if (!sk || (skillUsesLeft[i] || 0) <= 0 || !canUseSkillNow()) return;
 
     const lv = currentSkillLevel(subject);
-    const msg = applySkillEffect(sk, skillPower(sk, lv));
+    const msg = applySkillEffect(sk, skillPower(sk, lv), subject, lv);
     if (!msg) return;                                   // 意味がない場面では、回数を消費しない
 
     skillUsesLeft[i]--;
@@ -2413,8 +2538,9 @@ function handleEvolutionAnswer(selectedIndex) {
         const attacker = pickAttacker(evolutionSubject);          // 出撃している味方の中から、ランダムで1体が攻撃する
         const dmg = takeSkillDamage(attackPowerOf(attacker, stats));   // 攻撃したキャラ自身の強さ + スキル(powerup)の倍率
         evolutionBossHp = Math.max(0, evolutionBossHp - dmg);
+        const tickNote = endQuestionTick();                       // 毒のダメージ・継続効果を1問ぶん進める
         flashScreen("correct");
-        showBattleMessage(`✅ 正解！ ${subjectMeta[attacker].name}の攻撃！ ${getRandomAttackLine(attacker)} ${dmg} ダメージ！`);
+        showBattleMessage(`✅ 正解！ ${subjectMeta[attacker].name}の攻撃！ ${getRandomAttackLine(attacker)} ${dmg} ダメージ！${tickNote}`);
         if (attacker === evolutionSubject) playSpriteState(evolutionSubject, "attack");   // ドット絵の切り替えは、先頭のキャラのときだけ
         playAttackPose(attacker);
 
@@ -2422,11 +2548,13 @@ function handleEvolutionAnswer(selectedIndex) {
         if (correctBtn) { correctBtn.style.background = "#004400"; correctBtn.style.borderColor = "#00ff00"; }
     } else {
         // 不正解 → ショック
-        const shielded = takeSkillShield();           // スキル(shield)があれば、ハートは減らない
-        if (!shielded) evolutionPlayerHearts--;
+        const m = computeMistake();                   // 行動阻害・全体防御・反射・切り傷などの効果を反映
+        evolutionPlayerHearts -= m.lost;
+        if (m.reflectDmg) evolutionBossHp = Math.max(0, evolutionBossHp - m.reflectDmg);   // 反射: 受けるはずのダメージをボスへ
+        const tickNote = endQuestionTick();
         flashScreen("wrong");
-        showBattleMessage(shielded ? "🛡️ 不正解！ でも、シールドでハートは減らなかった！" : `❌ 不正解！ ハートが1つ減った！`);
-        playSpriteState(evolutionSubject, "hurt");
+        showBattleMessage(mistakeText("wrong", m) + tickNote);
+        if (m.lost > 0) playSpriteState(evolutionSubject, "hurt");
 
         const wrongBtn = document.getElementById("choice" + selectedIndex);
         if (wrongBtn) { wrongBtn.style.background = "#440000"; wrongBtn.style.borderColor = "#ff0000"; }
@@ -2436,36 +2564,39 @@ function handleEvolutionAnswer(selectedIndex) {
 
     updateEvolutionUI();
 
-    setTimeout(() => {
-        if (evolutionBossHp <= 0 && evolutionWaveIndex < evolutionWaves.length - 1) {
-            // 雑魚敵を撃破 → 次の敵へ(雑魚ならハート1回復)
-            const defeated = evolutionWaves[evolutionWaveIndex];
-            let healed = false;
-            if (!defeated.boss && evolutionPlayerHearts < evolutionPlayerMaxHearts) {
-                evolutionPlayerHearts++;
-                healed = true;
-            }
-            evolutionWaveIndex++;
-            loadEvolutionEnemy(healed);
-            playSpriteState(evolutionSubject, "idle");
-            generateEvolutionQuestion();
-            startTimer();
-        } else if (evolutionBossHp <= 0) {
-            // 勝利
-            characterLevels[evolutionSubject].level++;
-            saveGame();
-            alert(`🎉 昇格成功！おめでとう、${playerCallName()}！\nLv.${characterLevels[evolutionSubject].level} になりました！`);
-            backToHub();
-        } else if (evolutionPlayerHearts <= 0) {
-            // 敗北
-            alert("💀 敗北...\nハートがなくなりました。また挑戦してください！");
-            backToHub();
-        } else {
-            playSpriteState(evolutionSubject, "idle");
-            generateEvolutionQuestion();
-            startTimer();
+    setTimeout(evolutionAfterTurn, 1500);
+}
+
+// 1問(または時間切れ)のあとの流れ: 次の敵へ / 昇格成功 / 敗北 / 次の問題
+function evolutionAfterTurn() {
+    if (evolutionBossHp <= 0 && evolutionWaveIndex < evolutionWaves.length - 1) {
+        // 雑魚敵を撃破 → 次の敵へ(雑魚ならハート1回復)
+        const defeated = evolutionWaves[evolutionWaveIndex];
+        let healed = false;
+        if (!defeated.boss && evolutionPlayerHearts < evolutionPlayerMaxHearts) {
+            evolutionPlayerHearts = Math.min(evolutionPlayerMaxHearts, evolutionPlayerHearts + 1);
+            healed = true;
         }
-    }, 1500);
+        evolutionWaveIndex++;
+        loadEvolutionEnemy(healed);
+        playSpriteState(evolutionSubject, "idle");
+        generateEvolutionQuestion();
+        startTimer();
+    } else if (evolutionBossHp <= 0) {
+        // 勝利
+        characterLevels[evolutionSubject].level++;
+        saveGame();
+        alert(`🎉 昇格成功！おめでとう、${playerCallName()}！\nLv.${characterLevels[evolutionSubject].level} になりました！`);
+        backToHub();
+    } else if (evolutionPlayerHearts <= 0) {
+        // 敗北
+        alert("💀 敗北...\nハートがなくなりました。また挑戦してください！");
+        backToHub();
+    } else {
+        playSpriteState(evolutionSubject, "idle");
+        generateEvolutionQuestion();
+        startTimer();
+    }
 }
 
 // ==========================================
@@ -2507,31 +2638,26 @@ function updateTimerUI() {
 function onTimeUp() {
     // 時間切れ → ハート1個減
     if (currentBattleMode === "evolution") {
-        const shielded = takeSkillShield();           // スキル(shield)があれば、ハートは減らない
-        if (!shielded) evolutionPlayerHearts--;
+        const m = computeMistake();                   // 行動阻害・全体防御・反射・切り傷などの効果を反映
+        evolutionPlayerHearts -= m.lost;
+        if (m.reflectDmg) evolutionBossHp = Math.max(0, evolutionBossHp - m.reflectDmg);
+        const tickNote = endQuestionTick();
         flashScreen("wrong");
-        showBattleMessage(shielded ? "🛡️ 時間切れ！ でも、シールドでハートは減らなかった！" : "⌛ 時間切れ！ ハートが1つ減った！");
-        playSpriteState(evolutionSubject, "hurt");
+        showBattleMessage(mistakeText("timeup", m) + tickNote);
+        if (m.lost > 0) playSpriteState(evolutionSubject, "hurt");
 
         updateEvolutionUI();
 
-        setTimeout(() => {
-            if (evolutionPlayerHearts <= 0) {
-                alert("💀 敗北...\nハートがなくなりました。また挑戦してください！");
-                backToHub();
-            } else {
-                playSpriteState(evolutionSubject, "idle");
-                generateEvolutionQuestion();
-                startTimer();
-            }
-        }, 1500);
+        setTimeout(evolutionAfterTurn, 1500);
     } else if (currentBattleMode === "raid") {
         if (raidStage !== "normal") return;          // 負けイベ・覚醒中は、時間切れにならない
-        const shielded = takeSkillShield();           // スキル(shield)があれば、ハートは減らない
-        if (!shielded) raidPlayerHearts--;
+        const m = computeMistake();                   // 行動阻害・全体防御・反射・切り傷などの効果を反映
+        raidPlayerHearts -= m.lost;
+        if (m.reflectDmg) applyBossDamage(m.reflectDmg);
+        const tickNote = endQuestionTick();
         flashScreen("wrong");
-        showBattleMessage(shielded ? "🛡️ 時間切れ！ でも、シールドでハートは減らなかった！" : "⌛ 時間切れ！ ハートが1つ減った！");
-        playSpriteState(raidFighter, "hurt");
+        showBattleMessage(mistakeText("timeup", m) + tickNote);
+        if (m.lost > 0) playSpriteState(raidFighter, "hurt");
 
         for (let i = 0; i < 4; i++) {
             const btn = document.getElementById("choice" + i);
@@ -3227,6 +3353,7 @@ function awakenRaidSurvivor(token, withScript) {
 function startRaidSecondPhaseEvent(lateJoin) {
     const token = ++raidEventToken;
     stopTimer();
+    clearSkillEffects();                 // 第二形態のイベントに入る前に、継続効果は消す
     lockRaidChoices(true);
 
     // 変身したあとに入室した人: 負けイベは飛ばして、すぐ覚醒した状態で始める
@@ -3351,7 +3478,8 @@ function handleRaidAnswer(selectedIndex) {
         const attacker = pickAttacker(raidFighter);                // 出撃している味方の中から、ランダムで1体が攻撃する
         const dmg = takeSkillDamage(attackPowerOf(attacker, stats));   // 攻撃したキャラ自身の強さ + スキル(powerup)の倍率
         flashScreen("correct");
-        showBattleMessage(`✅ 正解！ ${subjectMeta[attacker].name}の攻撃！ ${getRandomAttackLine(attacker)} ${dmg} ダメージ！`);
+        const tickNote = endQuestionTick();                       // 毒のダメージ・継続効果を1問ぶん進める
+        showBattleMessage(`✅ 正解！ ${subjectMeta[attacker].name}の攻撃！ ${getRandomAttackLine(attacker)} ${dmg} ダメージ！${tickNote}`);
         if (attacker === raidFighter) playSpriteState(raidFighter, "attack");   // ドット絵の切り替えは、先頭のキャラのときだけ
         playAttackPose(attacker);
 
@@ -3361,11 +3489,13 @@ function handleRaidAnswer(selectedIndex) {
         // みんなで共有しているボスHPを実際に削る(トランザクションで安全に減算)
         db.ref("raid/bossHp").transaction(hp => (hp == null ? hp : Math.max(0, hp - dmg)));
     } else {
-        const shielded = takeSkillShield();           // スキル(shield)があれば、ハートは減らない
-        if (!shielded) raidPlayerHearts--;
+        const m = computeMistake();                   // 行動阻害・全体防御・反射・切り傷などの効果を反映
+        raidPlayerHearts -= m.lost;
+        if (m.reflectDmg) applyBossDamage(m.reflectDmg);          // 反射: 受けるはずのダメージを、みんなのボスHPへ
+        const tickNote = endQuestionTick();
         flashScreen("wrong");
-        showBattleMessage(shielded ? "🛡️ 不正解！ でも、シールドでハートは減らなかった！" : "❌ 不正解！ ハートが1つ減った！");
-        playSpriteState(raidFighter, "hurt");
+        showBattleMessage(mistakeText("wrong", m) + tickNote);
+        if (m.lost > 0) playSpriteState(raidFighter, "hurt");
 
         const wrongBtn = document.getElementById("choice" + selectedIndex);
         if (wrongBtn) { wrongBtn.style.background = "#440000"; wrongBtn.style.borderColor = "#ff0000"; }
