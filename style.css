@@ -825,3 +825,74 @@ body {
     background: rgba(255, 228, 120, 0.9);
     box-shadow: 0 0 0 1500px rgba(255, 228, 120, 0.9);
 }
+
+
+/* ==========================================
+   ⭐ スキルボタン(戦っているキャラのスキル4つ)
+   ========================================== */
+.skill-slot {
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: 190px;      /* スキルが少ないときは、大きくなりすぎないようにする */
+    padding: 5px 2px 4px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    background: linear-gradient(#34457a, #222b50);
+    color: #fff;
+    font-size: 11px;
+    line-height: 1.25;
+    font-weight: bold;
+    text-align: center;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+.skill-slot .sk-name {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.skill-slot .sk-sub {
+    display: block;
+    font-size: 9.5px;
+    font-weight: normal;
+    color: #cfe0ff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.skill-slot .sk-uses { font-weight: bold; color: #ffe27a; }
+.skill-slot:active:not(:disabled) { transform: scale(0.96); }
+.skill-slot:disabled { opacity: 0.4; cursor: not-allowed; }
+.skill-slot.used { filter: grayscale(1); }
+.skill-slot.empty {
+    background: #2a2a30;
+    border-style: dashed;
+    box-shadow: none;
+}
+
+/* スキルを使ったキャラが、一瞬、金色に光る */
+.party-slot.skill-cast .party-char-wrap {
+    animation: skill-cast 0.8s ease-out;
+}
+@keyframes skill-cast {
+    0%   { filter: drop-shadow(0 0 0 rgba(255, 226, 122, 0)); transform: scale(1); }
+    35%  { filter: drop-shadow(0 0 12px #ffe27a) drop-shadow(0 0 24px #ffb300); transform: scale(1.1); }
+    100% { filter: drop-shadow(0 0 0 rgba(255, 226, 122, 0)); transform: scale(1); }
+}
+
+
+/* 効果の残り(行動阻害・毒・切り傷など)を表示する欄 */
+#battle-status {
+    min-height: 14px;
+    line-height: 14px;
+    margin-bottom: 3px;
+    text-align: center;
+    font-size: 10.5px;
+    font-weight: bold;
+    color: #ffe27a;
+    text-shadow: 0 1px 3px #000;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}

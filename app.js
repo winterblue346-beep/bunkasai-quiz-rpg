@@ -48,7 +48,7 @@ let raidQuestion = null;
 let raidBossHpListenerAttached = false;
 let raidPlayersListenerAttached = false;
 let raidStatusListenerAttached = false;
-const RAID_DEFAULT_HP = 100000;
+const RAID_DEFAULT_HP = 100;
 let raidActive = false;      // ロビー〜バトル中は true
 let raidInLobby = false;     // ロビー待機中だけ true(この間だけ出撃通知で戦闘へ入る)
 let lobbyEnterToken = 0;     // 入室中に「抜ける」を押された場合の中断用
@@ -63,13 +63,14 @@ let evolutionQuestion = null;
 let evolutionUsedQuestionKeys = new Set();   // この昇格戦で、すでに出した問題
 
 // ==========================================
-// ⭐ キャラ別スキル(戦っている先頭のキャラの、スキルがボタンに並ぶ。最大4つ)
+// ⭐ キャラ別スキル(出撃しているキャラ全員のスキルが、ボタンに並ぶ。ボタンは最大 SKILL_BUTTON_MAX 個)
 //   ・下の CHARACTER_SKILLS に、キャラごとに書く
 //   ・各スキルの書き方:
 //       name  : ボタンに出る名前(5文字くらいまで)
 //       icon  : 絵文字
 //       type  : 効果の種類(下の一覧から選ぶ)
-//       uses  : 1回の戦闘で使える回数
+//       cooldown : クールタイム。使ったあと、再び使えるようになるまでに必要な「正解した回数」(時間ではない)
+//                  戦闘が始まった時点では、どのスキルも使える
 //       そのほか: 効果ごとの数字(下の一覧)。[Lv1, Lv2, Lv3] の配列で書くと、レベルで強くなる
 //   ・「1問」= 問題に答える(または時間切れになる)ごとに、1つ進む。使った問題から数える
 //   ・効果の種類(type):
@@ -87,33 +88,35 @@ const SKILLS_ENABLED = true;   // false にすると、スキル欄は空にな�
 
 const CHARACTER_SKILLS = {
     "国語": [   // 紫鳴 結月: 紫炎の魔法で攻撃(40%でクリティカル = ダメージ2倍)
-        { name: "紫炎の魔法", icon: "🔥", type: "flame", power: [2, 2.5, 3], crit: 0.4, critMult: 2, uses: 2 }
+        { name: "紫炎の魔法", icon: "🔥", type: "flame", power: [2, 2.5, 3], crit: 0.4, critMult: 2, cooldown: 3 }
     ],
     "数学": [   // アルゲブラ: 敵の行動を阻害(3問のあいだ、間違えても攻撃を受けない)
-        { name: "行動阻害", icon: "⛓️", type: "block", turns: 3, uses: 1 }
+        { name: "行動阻害", icon: "⛓️", type: "block", turns: 3, cooldown: 5 }
     ],
     "英語": [   // エルメシア: 光のビームで攻撃(追加効果でダメージ回復)
-        { name: "光のビーム", icon: "✨", type: "beam", power: [2, 2.5, 3], heal: [1, 1, 2], uses: 1 }
+        { name: "光のビーム", icon: "✨", type: "beam", power: [2, 2.5, 3], heal: [1, 1, 2], cooldown: 4 }
     ],
     "物理": [   // ファイ: 攻撃反射(自分だけ)。敵の攻撃を引き付けて、ダメージをそのまま反射する
-        { name: "攻撃反射", icon: "🪞", type: "reflect", turns: 3, reflectDamage: 200, uses: 1 }
+        { name: "攻撃反射", icon: "🪞", type: "reflect", turns: 3, reflectDamage: 200, cooldown: 5 }
     ],
     "化学": [   // ルイス: 毒のスリップダメージ(1問ごとに50ダメージ)
-        { name: "毒の霧", icon: "☠️", type: "poison", turns: [4, 5, 6], dot: 50, uses: 1 }
+        { name: "毒の霧", icon: "☠️", type: "poison", turns: [4, 5, 6], dot: 50, cooldown: 6 }
     ],
     "歴史": [   // 大和誠: 抜刀による攻撃とデバフ(相手は切り傷を得て、相手の攻撃が半減)
-        { name: "抜刀", icon: "⚔️", type: "slash", power: [2, 2.5, 3], turns: 3, uses: 1 }
+        { name: "抜刀", icon: "⚔️", type: "slash", power: [2, 2.5, 3], turns: 3, cooldown: 4 }
     ],
     "地理": [   // 伊能大地: 全体防御(3問のあいだ、ダメージ無効。自分だけに効く)
-        { name: "全体防御", icon: "🌍", type: "teamGuard", turns: 3, uses: 1 }
+        { name: "全体防御", icon: "🌍", type: "teamGuard", turns: 3, cooldown: 5 }
     ]
 };
 
-let skillUsesLeft = [0, 0, 0, 0];   // 各スキルの、残り回数
+const SKILL_BUTTON_MAX = 4;         // スキルボタンの最大数(出撃キャラ全員ぶんを並べる)
+const DEFAULT_SKILL_COOLDOWN = 3;   // cooldown を書き忘れたスキルの、クールタイム(正解数)
+let skillEntries = [];              // いま並んでいるスキル [{ subject: 持ち主のキャラ, sk: スキル }]
+let skillCooldownLeft = [];         // 各スキルの、再び使えるまでの残り正解数(0 なら使える)
 let skillPowerMult = 1;             // 「次の正解のダメージ」の倍率(powerup)
 let skillShield = 0;                // 「次の失敗を無効」の残り(shield)
 let skillEpoch = 0;                 // 戦闘のたびに増やして、前の戦闘の予約を無効にする
-let skillSubjectShown = null;       // いま、スキル欄に出しているキャラ
 
 function currentSkillSubject() {
     return currentBattleMode === "raid" ? raidFighter : evolutionSubject;
@@ -185,22 +188,46 @@ function updateBattleStatus() {
     if (el.textContent !== text) el.textContent = text;
 }
 
-// スキルのボタンを並べ直す(戦っているキャラが変わったときにも呼ぶ)
+// 出撃しているキャラ(画面に出る味方)の並び。先頭は、いま戦っているキャラ
+function computeDeployedSlots(activeSubject) {
+    let slots = [activeSubject, ...playerParty.filter(sub => sub !== activeSubject)].slice(0, 4);
+    // レイドで覚醒したあとは、残った1体だけ
+    if (currentBattleMode === "raid" && raidStage === "awakened") slots = [activeSubject];
+    return slots;
+}
+
+// 出撃しているキャラ全員のスキルを、先頭のキャラから順に並べる
+function buildSkillEntries(activeSubject) {
+    const list = [];
+    if (!SKILLS_ENABLED) return list;
+    computeDeployedSlots(activeSubject).forEach(sub => {
+        if (!sub || !subjectMeta[sub]) return;
+        skillsOf(sub).forEach(sk => list.push({ subject: sub, sk }));
+    });
+    return list.slice(0, SKILL_BUTTON_MAX);
+}
+
+function skillCooldownOf(sk) {
+    return (typeof sk.cooldown === "number") ? sk.cooldown : DEFAULT_SKILL_COOLDOWN;
+}
+
+// スキルのボタンを並べ直す
 function renderSkillBar() {
     const row = getSkillRow();
     if (!row) return;
     row.innerHTML = "";
-    const subject = currentSkillSubject();
-    const lv = currentSkillLevel(subject);
-    const list = SKILLS_ENABLED ? skillsOf(subject) : [];
-    const slotCount = list.length > 0 ? list.length : 4;   // スキルがあれば、その数だけ並べる(1つなら大きく表示)。1つも無ければ、空き枠4つ
+    const list = skillEntries;
+    const slotCount = list.length > 0 ? list.length : 4;   // スキルがあれば、その数だけ並べる。1つも無ければ、空き枠4つ
     for (let i = 0; i < slotCount; i++) {
-        const sk = list[i];
+        const ent = list[i];
         const btn = document.createElement("button");
-        btn.className = "skill-slot" + (sk ? "" : " empty");
+        btn.className = "skill-slot" + (ent ? "" : " empty");
         btn.dataset.slot = String(i);
-        if (sk) {
-            btn.innerHTML = `<span class="sk-name">${sk.icon} ${sk.name}</span><span class="sk-sub">${skillShortEffect(sk, lv)} ×<b class="sk-uses">${skillUsesLeft[i]}</b></span>`;
+        if (ent) {
+            const lv = currentSkillLevel(ent.subject);
+            btn.title = `${subjectMeta[ent.subject].name}: ${ent.sk.name}`;
+            btn.innerHTML = `<span class="sk-name">${ent.sk.icon} ${ent.sk.name}</span><span class="sk-sub"></span>`;
+            btn.dataset.effect = skillShortEffect(ent.sk, lv);
             btn.onclick = () => useSkill(i);
         } else {
             btn.innerHTML = '<span class="sk-name">—</span>';
@@ -211,26 +238,32 @@ function renderSkillBar() {
     updateSkillBarState();
 }
 
-// 戦闘開始: 状態をリセットして、先頭のキャラのスキルを並べる
+// 戦闘開始: 状態をリセットして、出撃キャラ全員のスキルを並べる(どのスキルも、最初から使える)
 function setupSkillBar(stats) {
     skillEpoch++;
     skillPowerMult = 1;
     skillShield = 0;
     clearSkillEffects();
     timeStopActive = false;
-    const subject = currentSkillSubject();
-    skillSubjectShown = subject;
-    skillUsesLeft = [0, 1, 2, 3].map(i => { const sk = skillsOf(subject)[i]; return sk ? (sk.uses || 1) : 0; });
+    skillEntries = buildSkillEntries(currentSkillSubject());
+    skillCooldownLeft = skillEntries.map(() => 0);
     renderSkillBar();
 }
 
-// 戦っているキャラが変わったとき(レイドの覚醒など)に、スキル欄をそのキャラのものにする
+// 出撃キャラが変わったとき(レイドの覚醒など)に、スキル欄を並べ直す(覚醒中は使えない)
 function refreshSkillBarForSubject() {
-    const subject = currentSkillSubject();
-    if (subject === skillSubjectShown) return;
-    skillSubjectShown = subject;
-    skillUsesLeft = [0, 1, 2, 3].map(i => { const sk = skillsOf(subject)[i]; return sk ? (sk.uses || 1) : 0; });
+    skillEntries = buildSkillEntries(currentSkillSubject());
+    skillCooldownLeft = skillEntries.map(() => 0);
     renderSkillBar();
+}
+
+// 問題に正解するたびに呼ぶ: クールタイム中のスキルの、残り正解数を1つ減らす
+function tickSkillCooldowns() {
+    let changed = false;
+    for (let i = 0; i < skillCooldownLeft.length; i++) {
+        if (skillCooldownLeft[i] > 0) { skillCooldownLeft[i]--; changed = true; }
+    }
+    if (changed) updateSkillBarState();
 }
 
 // いま、スキルを使える場面か(問題が出ていて、まだ回答していない / 第二形態のイベント中ではない)
@@ -242,23 +275,24 @@ function canUseSkillNow() {
     return [0, 1, 2, 3].some(i => { const b = document.getElementById("choice" + i); return b && !b.disabled; });
 }
 
-// ボタンの押せる/押せないと、残り回数の表示を更新する(一定間隔で呼ばれる)
+// ボタンの押せる/押せないと、クールタイムの表示を更新する(一定間隔で呼ばれる)
 function updateSkillBarState() {
     const row = getSkillRow();
     if (!row) return;
     updateBattleStatus();
-    const subject = currentSkillSubject();
-    const list = SKILLS_ENABLED ? skillsOf(subject) : [];
     const usable = canUseSkillNow();
     row.querySelectorAll(".skill-slot").forEach(btn => {
         const i = parseInt(btn.dataset.slot, 10);
-        const sk = list[i];
-        if (!sk) { btn.disabled = true; return; }
-        const left = skillUsesLeft[i] || 0;
-        const cnt = btn.querySelector(".sk-uses");
-        if (cnt) cnt.textContent = String(left);
-        btn.classList.toggle("used", left <= 0);
-        btn.disabled = !(usable && left > 0);
+        const ent = skillEntries[i];
+        if (!ent) { btn.disabled = true; return; }
+        const left = skillCooldownLeft[i] || 0;
+        const sub = btn.querySelector(".sk-sub");
+        if (sub) {
+            const html = left > 0 ? `あと<b class="sk-uses">${left}</b>問正解` : (btn.dataset.effect || "");
+            if (sub.innerHTML !== html) sub.innerHTML = html;
+        }
+        btn.classList.toggle("used", left > 0);
+        btn.disabled = !(usable && left <= 0);
     });
 }
 
@@ -438,7 +472,7 @@ function applySkillEffect(sk, p, subject, lv) {
         case "teamGuard": {
             if (fx.teamGuard > 0) return false;
             fx.teamGuard = lvPick(sk.turns, lv) || 3;
-            return `全体を守る結界！ ${fx.teamGuard}問のあいだ、ダメージ無効！`;
+            return `守りの結界！ ${fx.teamGuard}問のあいだ、ダメージ無効！`;
         }
         case "reflect": {
             if (fx.reflect > 0) return false;
@@ -459,20 +493,21 @@ function applySkillEffect(sk, p, subject, lv) {
 
 function useSkill(i) {
     if (!SKILLS_ENABLED) return;
-    const subject = currentSkillSubject();
-    const sk = skillsOf(subject)[i];
-    if (!sk || (skillUsesLeft[i] || 0) <= 0 || !canUseSkillNow()) return;
+    const ent = skillEntries[i];
+    if (!ent || (skillCooldownLeft[i] || 0) > 0 || !canUseSkillNow()) return;
+    const sk = ent.sk, subject = ent.subject;
 
     const lv = currentSkillLevel(subject);
     const msg = applySkillEffect(sk, skillPower(sk, lv), subject, lv);
-    if (!msg) return;                                   // 意味がない場面では、回数を消費しない
+    if (!msg) return;                                   // 意味がない場面では、クールタイムに入らない
 
-    skillUsesLeft[i]--;
+    skillCooldownLeft[i] = skillCooldownOf(sk);         // 使ったら、クールタイム開始(正解した回数で数える)
     showBattleMessage(`${sk.icon} ${subjectMeta[subject].name}の「${sk.name}」！ ${msg}`);
-    const slot0 = document.getElementById("party-slot-0");
-    if (slot0) {                                        // 使ったキャラが、一瞬光る
-        slot0.classList.remove("skill-cast"); void slot0.offsetWidth; slot0.classList.add("skill-cast");
-        setTimeout(() => slot0.classList.remove("skill-cast"), 800);
+    const slotIdx = Math.max(0, battlePartySlots.indexOf(subject));
+    const slotEl = document.getElementById(`party-slot-${slotIdx}`);
+    if (slotEl) {                                       // 使ったキャラが、一瞬光る
+        slotEl.classList.remove("skill-cast"); void slotEl.offsetWidth; slotEl.classList.add("skill-cast");
+        setTimeout(() => slotEl.classList.remove("skill-cast"), 800);
     }
     updateSkillBarState();
 }
@@ -1362,7 +1397,7 @@ const BGM_SCENES = {
     trial:  { file: "bgm_trial.mp3",  volume: 0.55 },  // キャラ獲得試練(404_フリーズ_コード)
     battle: { file: "bgm_battle.m4a", volume: 0.5 },   // 昇格戦
     raid:   { file: "bgm_raid1.mp3",  volume: 0.5 },   // レイドバトル 第一形態(ロビーでは流さない)
-    raid2:  { file: "bgm_raid2.mp3",  volume: 0.5 },   // レイドバトル 第二形態(変身の瞬間に切り替わる)
+    raid2:  { file: "bgm_raid2.mp3",  volume: 0.5 },   // レイドバトル 第二形態の曲(変身しても第一形態の曲のまま。キャラが覚醒した瞬間に切り替わる)
     ending: { file: "bgm_ending.mp3", volume: 0.7 }    // エンディング(雨の音。元の音が小さめなので音量を上げている)。エンディング画面の id を "ending-screen" にすれば自動で流れる。別の方法で出すなら setBgmScene("ending")
 };
 const BGM_FALLBACK = { trial: "hub", battle: "hub", raid: "battle", raid2: "raid" };   // 曲が無いときの代わり
@@ -1701,6 +1736,7 @@ function closePartyScreen() {
 const RANDOM_ATTACKER_ENABLED = true;   // false にすると、いつも先頭のキャラが攻撃する
 let battlePartySlots = [];              // いま画面に出ている味方(最大4体)
 let lastAttacker = null;                // 直前に攻撃したキャラ(確認用)
+const attackTally = {};                 // キャラごとの攻撃回数(確認用。ページを開き直すまで貯まる)
 
 const ATTACK_USES_ATTACKER_STATS = true;   // true: 攻撃したキャラ自身のレベルの強さでダメージを計算 / false: いつも先頭のキャラの強さ
 
@@ -1717,15 +1753,13 @@ function pickAttacker(lead) {
         attacker = battlePartySlots[Math.floor(Math.random() * battlePartySlots.length)];
     }
     lastAttacker = attacker;
+    attackTally[attacker] = (attackTally[attacker] || 0) + 1;   // 確認用: 誰が何回攻撃したか(?debug=1 で画面に出る)
     return attacker;
 }
 
 function renderPartyDisplay(activeSubject) {
     // 表示する4枠を決定：先頭にactiveSubjectを置き、残りをplayerPartyから埋める(重複除外)
-    let slots = [activeSubject, ...playerParty.filter(s => s !== activeSubject)];
-    slots = slots.slice(0, 4);
-    // レイドで覚醒したあとは、残った1体だけを表示する
-    if (currentBattleMode === "raid" && raidStage === "awakened") slots = [activeSubject];
+    const slots = computeDeployedSlots(activeSubject);   // レイドで覚醒したあとは、残った1体だけ
 
     battlePartySlots = slots.filter(sub => sub && subjectMeta[sub]);   // いま画面に出ている味方(攻撃するキャラの候補)
 
@@ -2436,7 +2470,8 @@ function playAttackPose(subject) {
             `app.js    : ${APP_BUILD}`,
             `HTML要素  : ${wrap && art && dim ? "OK" : "NG (index.html が古い)"}`,
             `CSS       : ${cssOk ? "OK" : "NG (style.css が古い)"}`,
-            `画像      : ${file} 確認中...`
+            `画像      : ${file} 確認中...`,
+            `攻撃回数  : ${Object.keys(attackTally).map(k => `${subjectMeta[k] ? subjectMeta[k].name : k} ${attackTally[k]}`).join(" / ")}`
         ];
         showAttackDebug(lines);
         if (file) {
@@ -2593,6 +2628,7 @@ function handleEvolutionAnswer(selectedIndex) {
         const dmg = takeSkillDamage(attackPowerOf(attacker, stats));   // 攻撃したキャラ自身の強さ + スキル(powerup)の倍率
         evolutionBossHp = Math.max(0, evolutionBossHp - dmg);
         const tickNote = endQuestionTick();                       // 毒のダメージ・継続効果を1問ぶん進める
+        tickSkillCooldowns();                                     // スキルのクールタイムを、正解1回ぶん進める
         flashScreen("correct");
         showBattleMessage(`✅ 正解！ ${subjectMeta[attacker].name}の攻撃！ ${getRandomAttackLine(attacker)} ${dmg} ダメージ！${tickNote}`);
         if (attacker === evolutionSubject) playSpriteState(evolutionSubject, "attack");   // ドット絵の切り替えは、先頭のキャラのときだけ
@@ -3241,7 +3277,7 @@ function enterRaidBattle() {
     raidDeployed = [raidFighter, ...playerParty.filter(sub => sub !== raidFighter)].slice(0, 4);   // 画面の左に並ぶ出撃キャラ
     setRaidBossForm(1, false);                       // 第一形態の姿・名前から始める
     const preloadP2 = new Image(); preloadP2.src = RAID_BOSS_IMG_P2;   // 変身の瞬間に遅れないよう先読み
-    const p2Audio = bgmGetAudio("raid2");            // 第二形態の曲も先に読み込み始める(変身の瞬間に無音にならないように)
+    const p2Audio = bgmGetAudio("raid2");            // 第二形態の曲も先に読み込み始める(覚醒の瞬間に無音にならないように)
     if (p2Audio) { try { p2Audio.load(); } catch (e) {} }
 
     setupSkillBar(stats);
@@ -3308,7 +3344,7 @@ function setRaidBossForm(phase, withEffect) {
         if (img) { img.style.display = "block"; img.src = (phase === 2) ? RAID_BOSS_IMG_P2 : RAID_BOSS_IMG_P1; }
         if (nameEl) nameEl.innerText = (phase === 2) ? RAID_BOSS_NAME_P2 : RAID_BOSS_NAME_P1;
         if (field) field.classList.toggle("raid-phase2", phase === 2);
-        setBgmScene(phase === 2 ? "raid2" : "raid");     // 第一形態/第二形態の曲を、姿と同時に切り替える
+        if (phase === 1) setBgmScene("raid");            // 第一形態の曲。第二形態に変身しても曲は変えない(覚醒したときに raid2 へ切り替わる)
     };
     if (!withEffect) { apply(); return; }
 
@@ -3379,6 +3415,7 @@ function raidGoldFlash() {
 function awakenRaidSurvivor(token, withScript) {
     raidStage = "awakened";
     raidFighter = raidSurvivor;
+    if (raidActive) setBgmScene("raid2");            // キャラが覚醒した瞬間に、第二形態の曲へ切り替える(変身後に入室した人は、入室してすぐ)
     clearRaidEventClasses();
     setBattleCharacterDisplay(raidFighter);          // 残った1体だけを表示(raidStage が awakened なので、控えは出ない)
     refreshSkillBarForSubject();                     // スキル欄も、残った1体のものにする(覚醒中は使えない)
@@ -3533,6 +3570,7 @@ function handleRaidAnswer(selectedIndex) {
         const dmg = takeSkillDamage(attackPowerOf(attacker, stats));   // 攻撃したキャラ自身の強さ + スキル(powerup)の倍率
         flashScreen("correct");
         const tickNote = endQuestionTick();                       // 毒のダメージ・継続効果を1問ぶん進める
+        tickSkillCooldowns();                                     // スキルのクールタイムを、正解1回ぶん進める
         showBattleMessage(`✅ 正解！ ${subjectMeta[attacker].name}の攻撃！ ${getRandomAttackLine(attacker)} ${dmg} ダメージ！${tickNote}`);
         if (attacker === raidFighter) playSpriteState(raidFighter, "attack");   // ドット絵の切り替えは、先頭のキャラのときだけ
         playAttackPose(attacker);
@@ -3644,17 +3682,19 @@ Lv1：5個 / Lv2：8個 / Lv3：11個
     {
         title: "✨ スキル",
         content: `
-バトル中、戦っているキャラの
-スキルが、問題の下のボタンに
-並びます。
+バトル中、出撃しているキャラ
+全員のスキルが、問題の下の
+ボタンに並びます。
 
 📋 使い方
 ・問題に答える前にタップして発動
-・使える回数はボタンに表示
-　（1回の戦闘ごとにリセット）
+・使ったあとは「クールタイム」
+　（時間ではなく、問題に正解した
+　回数で数える）
+・ボタンの「あと◯問正解」が0に
+　なると、また使える
+・戦闘の始まりは、全部使える
 ・効果の残りは、スキル欄の上に表示
-・「あと◯問」は、問題に答える
-　（時間切れ含む）ごとに減る
 
 💡 ポイント
 キャラのレベルが上がると
@@ -3668,30 +3708,37 @@ Lv1：5個 / Lv2：8個 / Lv3：11個
         content: `
 🔥 紫鳴結月「紫炎の魔法」
 攻撃力の2〜3倍で攻撃。
-40%で会心（ダメージ2倍）。2回使える
+40%で会心（ダメージ2倍）
+CT：3問正解
 
 ⛓️ アルゲブラ「行動阻害」
 3問のあいだ、間違えても
 ダメージを受けない
+CT：5問正解
 
 ✨ エルメシア「光のビーム」
 攻撃力の2〜3倍で攻撃し、
 ハートも回復
+CT：4問正解
 
 🪞 ファイ「攻撃反射」
 3問のあいだ、受けるダメージを
 無効にして、敵に200ダメージを反射
+CT：5問正解
 
 ☠️ ルイス「毒の霧」
 4〜6問のあいだ、1問ごとに
 敵へ50ダメージ
+CT：6問正解
 
 ⚔️ 大和誠「抜刀」
 攻撃力の2〜3倍で攻撃し、
 3問のあいだ敵の攻撃を半減
+CT：4問正解
 
 🌍 伊能大地「全体防御」
 3問のあいだ、ダメージ無効
+CT：5問正解
         `
     }
 ];
