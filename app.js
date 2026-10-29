@@ -48,7 +48,7 @@ let raidQuestion = null;
 let raidBossHpListenerAttached = false;
 let raidPlayersListenerAttached = false;
 let raidStatusListenerAttached = false;
-const RAID_DEFAULT_HP = 100;
+const RAID_DEFAULT_HP = 100000;
 let raidActive = false;      // ロビー〜バトル中は true
 let raidInLobby = false;     // ロビー待機中だけ true(この間だけ出撃通知で戦闘へ入る)
 let lobbyEnterToken = 0;     // 入室中に「抜ける」を押された場合の中断用
@@ -192,7 +192,9 @@ function updateBattleStatus() {
 function computeDeployedSlots(activeSubject) {
     let slots = [activeSubject, ...playerParty.filter(sub => sub !== activeSubject)].slice(0, 4);
     // レイドで覚醒したあとは、残った1体だけ
-    if (currentBattleMode === "raid" && raidStage === "awakened") slots = [activeSubject];
+    if (currentBattleMode === "raid" && raidStage === "awakened") {
+        slots = raidAwakenedSubjects.length ? raidAwakenedSubjects.slice() : [activeSubject];
+    }
     return slots;
 }
 
@@ -2298,8 +2300,11 @@ function selectTrialChoice(selectedIndex) {
         if (trialCurrentIndex < 10) {
             startTrialQuiz(document.getElementById("trial-title").innerText);
         } else {
+            let recruitedNow = false;                 // 今回、初めて仲間になったか(なったときだけ漫画を見せる)
+            const recruitedSubject = evolutionSubject;
             if (trialCorrectCount >= 8) {
                 if (characterLevels[evolutionSubject].level === 0) {
+                    recruitedNow = true;
                     characterLevels[evolutionSubject].level = 1;
                     const charName = subjectMeta[evolutionSubject] ? subjectMeta[evolutionSubject].name : evolutionSubject;
                     let partyMsg = "";
@@ -2318,9 +2323,172 @@ function selectTrialChoice(selectedIndex) {
             } else {
                 alert(`💀 不合格...\n正解数が ${trialCorrectCount} 問でした。合格には8問以上の正解が必要です。`);
             }
-            backToHub();
+            if (recruitedNow) showRecruitManga(recruitedSubject, backToHub);   // 仲間になった直後の漫画 → 閉じたら拠点へ
+            else backToHub();
         }
     }, 2000);
+}
+
+// ==========================================
+// 📖 漫画ビューア(全画面)
+//   ・画面をタップするたびに、漫画が1段ずつ現れて進む。最後の段のあとにタップすると閉じる
+//   ・右下の「スキップ」で、いつでも閉じられる
+//   ・画像が読み込めないときは、何も出さずにそのまま次へ進む(ゲームは止まらない)
+//   ・画像は index.html と同じ場所に置く。段の切れ目(cuts)は、画像の縦の位置(px)。w / h は画像の幅・高さ
+//     画像を差し替えたら、ここの数値も直す
+//
+//   ① 仲間になった直後の漫画: manga_キャラ接頭辞.webp(例: manga_lewis.webp)
+//        キャラの試練に初めて合格した直後に出る → 閉じたら拠点へ戻る
+//   ② レイドで覚醒するときの漫画: manga_awaken_キャラ接頭辞.webp(例: manga_awaken_lewis.webp)
+//        第二形態の負けイベのあと、キャラが覚醒する直前に出る → 閉じたら覚醒して決戦が始まる
+//        結月とエルメシアの特別ルートでは、2人の漫画 manga_awaken_pair.webp が出る
+//        変身したあとに入室した人(負けイベを見ていない人)には出ない
+// ==========================================
+const MANGA_DATA = {
+    lewis: { w: 940, h: 1673, cuts: [419, 798, 1108, 1376] },
+    yamato: { w: 941, h: 1672, cuts: [427, 806, 1100, 1379] },
+    phi: { w: 940, h: 1672, cuts: [416, 795, 1110, 1381] },
+    inoh: { w: 941, h: 1672, cuts: [418, 735, 1053, 1324] },
+    elmesia: { w: 941, h: 1672, cuts: [424, 831, 1240] },
+    algebra: { w: 941, h: 1672, cuts: [438, 828, 1256] },
+    yuzuki: { w: 941, h: 1672, cuts: [571, 1081] }
+};
+const MANGA_AWAKEN_DATA = {
+    pair: { w: 1024, h: 1536, cuts: [188, 358, 606] },
+    yamato: { w: 941, h: 1672, cuts: [276, 582, 838, 1322] },
+    phi: { w: 1024, h: 1536, cuts: [371, 685, 799] },
+    lewis: { w: 1024, h: 1536, cuts: [378, 715, 890, 1162] },
+    inoh: { w: 941, h: 1672, cuts: [309, 650, 918, 1432] },
+    elmesia: { w: 941, h: 1672, cuts: [284, 592, 874, 1392] },
+    algebra: { w: 941, h: 1671, cuts: [333, 601, 895, 1302] },
+    yuzuki: { w: 941, h: 1672, cuts: [288, 686, 1034] }
+};
+
+let mangaOverlayOpen = false;
+let mangaCloseNow = null;                // 開いている漫画を、いますぐ閉じる関数(退出・レイド終了のときに使う)
+
+function ensureMangaStyle() {
+    if (document.getElementById("manga-style")) return;
+    const st = document.createElement("style");
+    st.id = "manga-style";
+    st.textContent = `
+#manga-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 20000; background: #000; display: flex; flex-direction: column; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+#manga-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; justify-content: center; }
+#manga-inner { width: 100%; }
+.manga-row { position: relative; width: 100%; overflow: hidden; display: none; }
+.manga-row.shown { display: block; animation: manga-in 0.35s ease-out; }
+.manga-row img { position: absolute; left: 0; width: 100%; height: auto; display: block; }
+@keyframes manga-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+#manga-hint { flex: 0 0 auto; text-align: center; font-size: 13px; color: #fff; padding: 8px 0 10px; background: #000; animation: manga-blink 1.2s ease-in-out infinite alternate; }
+@keyframes manga-blink { from { opacity: 0.45; } to { opacity: 1; } }
+#manga-skip { position: absolute; bottom: 5px; right: 8px; z-index: 2; padding: 5px 10px; font-size: 12px; font-weight: bold; color: #fff; background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.6); border-radius: 14px; cursor: pointer; }
+`;
+    document.head.appendChild(st);
+}
+
+// 漫画を全画面で見せる。file: 画像ファイル名 / data: { w, h, cuts } / onClose: 閉じたあとにすること / lastHint: 最後の段のときの案内
+function showMangaViewer(file, data, onClose, lastHint) {
+    const done = typeof onClose === "function" ? onClose : () => {};
+    const container = document.getElementById("game-container");
+    if (!data || !container || mangaOverlayOpen) { done(); return; }
+
+    const probe = new Image();
+    probe.onerror = () => done();                       // 画像が無い・読めないときは、漫画なしで進む
+    probe.onload = () => {
+        if (mangaOverlayOpen) { done(); return; }
+        ensureMangaStyle();
+        mangaOverlayOpen = true;
+
+        const overlay = document.createElement("div");
+        overlay.id = "manga-overlay";
+        const scroll = document.createElement("div");
+        scroll.id = "manga-scroll";
+        const inner = document.createElement("div");
+        inner.id = "manga-inner";
+        scroll.appendChild(inner);
+
+        // 段ごとに、同じ画像の「一部分だけ」を見せる(段は最初は隠しておき、タップで1段ずつ出す)
+        const edges = [0, ...data.cuts, data.h];
+        const rows = [];
+        for (let i = 0; i < edges.length - 1; i++) {
+            const y0 = edges[i], y1 = edges[i + 1];
+            const row = document.createElement("div");
+            row.className = "manga-row";
+            row.style.aspectRatio = `${data.w} / ${y1 - y0}`;
+            const img = document.createElement("img");
+            img.src = probe.src;
+            img.alt = "";
+            img.draggable = false;
+            img.style.top = `${-(y0 / (y1 - y0)) * 100}%`;
+            row.appendChild(img);
+            inner.appendChild(row);
+            rows.push(row);
+        }
+
+        const hint = document.createElement("div");
+        hint.id = "manga-hint";
+        const skip = document.createElement("button");
+        skip.id = "manga-skip";
+        skip.type = "button";
+        skip.innerText = "スキップ ⏭";
+
+        overlay.appendChild(scroll);
+        overlay.appendChild(hint);
+        overlay.appendChild(skip);
+        container.appendChild(overlay);
+
+        let shown = 0;
+        let lastTap = 0;
+        let closed = false;
+        const close = (runCallback) => {
+            if (closed) return;
+            closed = true;
+            mangaOverlayOpen = false;
+            mangaCloseNow = null;
+            overlay.remove();
+            if (runCallback) done();
+        };
+        mangaCloseNow = () => close(false);              // 退出・レイド終了のときは、あとの処理はせずに閉じるだけ
+        const updateHint = () => {
+            hint.innerText = shown >= rows.length ? (lastHint || "▼ タップして閉じる") : `▼ タップで進む (${shown}/${rows.length})`;
+        };
+        const showNext = () => {
+            if (shown >= rows.length) { close(true); return; }
+            rows[shown].classList.add("shown");
+            shown++;
+            updateHint();
+            setTimeout(() => { scroll.scrollTo({ top: scroll.scrollHeight, behavior: "smooth" }); }, 30);
+        };
+
+        overlay.addEventListener("click", ev => {
+            if (ev.target === skip) return;
+            const now = Date.now();
+            if (now - lastTap < 250) return;             // 連打で、うっかり飛ばさないように
+            lastTap = now;
+            showNext();
+        });
+        skip.addEventListener("click", ev => { ev.stopPropagation(); close(true); });
+
+        showNext();                                      // 最初の1段を表示
+    };
+    probe.src = file;
+}
+
+// 開いている漫画があれば、あとの処理はせずに閉じる
+function closeMangaViewer() {
+    if (mangaCloseNow) mangaCloseNow();
+}
+
+// ① 仲間になった直後の漫画。subject: 仲間になった教科 / onClose: 閉じたあとにすること(拠点へ戻るなど)
+function showRecruitManga(subject, onClose) {
+    const meta = subjectMeta[subject];
+    const data = meta ? MANGA_DATA[meta.imgBase] : null;
+    showMangaViewer(meta ? `manga_${meta.imgBase}.webp` : "", data, onClose, "▼ タップして閉じる");
+}
+
+// ② レイドで覚醒するときの漫画。key: キャラの接頭辞 / 特別ルート(2人)なら "pair"
+function showAwakenManga(key, onClose) {
+    showMangaViewer(`manga_awaken_${key}.webp`, MANGA_AWAKEN_DATA[key], onClose, "▼ タップして、覚醒へ！");
 }
 
 // ==========================================
@@ -2740,7 +2908,11 @@ function onTimeUp() {
 
         setTimeout(evolutionAfterTurn, 1500);
     } else if (currentBattleMode === "raid") {
-        if (raidStage !== "normal") return;          // 負けイベ・覚醒中は、時間切れにならない
+        if (raidStage === "loss") {                  // 負けイベ中の時間切れも、1体倒される
+            if (raidAlive.length > raidAliveTarget()) raidLossBlow("timeup");
+            return;
+        }
+        if (raidStage !== "normal") return;          // 覚醒中は、時間切れにならない
         const m = computeMistake();                   // 行動阻害・全体防御・反射・切り傷などの効果を反映
         raidPlayerHearts -= m.lost;
         if (m.reflectDmg) applyBossDamage(m.reflectDmg);
@@ -3065,6 +3237,7 @@ function closeCameraScreen() {
 }
 
 function backToHub() {
+    closeMangaViewer();                  // 漫画を開いたまま拠点へ戻る場合は、漫画を閉じる
     stopTimer();
     timeStopActive = false;
     detachRaidListeners();
@@ -3273,6 +3446,7 @@ function enterRaidBattle() {
     raidPhaseChecked = false;
     raidStage = "normal";
     raidSurvivor = null;
+    raidAwakenedSubjects = [];
     raidEventToken++;                                // 前回の予約済みの演出を無効にする
     raidDeployed = [raidFighter, ...playerParty.filter(sub => sub !== raidFighter)].slice(0, 4);   // 画面の左に並ぶ出撃キャラ
     setRaidBossForm(1, false);                       // 第一形態の姿・名前から始める
@@ -3363,18 +3537,22 @@ function setRaidBossForm(phase, withEffect) {
 }
 
 // ==========================================
-// ⚔️ 第二形態イベント: 負けイベ → 覚醒(勝ちイベ)    ※各自の画面で、自分のパーティについて起きる
-//   1) 変身のあと、出撃しているキャラの中から1体を「全員同じ確率」で選び、ほかは消滅する
-//   2) 残った1体が覚醒する。以降は、どの選択肢を選んでも必ず正解になる(タイマーも止まる)
-//   3) 覚醒の一撃は大ダメージ。ボスのHPが0になると、全員で勝利して終わる
+// ⚔️ 第二形態イベント: 負けイベ → 覚醒(決戦)    ※各自の画面で、自分のパーティについて起きる
+//   1) 第一形態が終わって第二形態になると、そのまま問題が出続ける。ただし、正解しても不正解になる(攻撃は通じない)
+//   2) 1問答える(または時間切れになる)たびに、出撃しているキャラのうち1体が、一撃で倒される(全員同じ確率)
+//   3) 最後の1体になったら、そのキャラが覚醒する。以降は、どの選択肢を選んでも必ず正解になる(タイマーも止まる)
+//   4) 覚醒の一撃は大ダメージ。ボスのHPが0になると、全員で勝利して終わる
+//   ・出撃が1体だけのときは、倒されるキャラがいないので、すぐ覚醒する
 //   ・変身したあとに入室した人は、負けイベを飛ばして、最初から覚醒した状態で始まる
+//   ・負けイベ中は、スキルを使えない
 // ==========================================
 const RAID_AWAKEN_DAMAGE_RATIO = 0.1;    // 覚醒の一撃のダメージ = ボス最大HPのこの割合(0.1 = 1割)
 const RAID_EVENT_START_DELAY_MS = 1800;  // 変身の演出が落ち着いてから、負けイベを始めるまでの待ち時間
-const RAID_EVENT_STEP_MS = 1100;         // 仲間が消滅していく間隔
+const RAID_EVENT_STEP_MS = 1100;         // 仲間が倒されてから、次の問題が出るまでの間隔(これに 0.6 秒を足した時間)
 let raidStage = "normal";                // "normal"(通常) / "loss"(負けイベ中) / "awakened"(覚醒中)
 let raidEventToken = 0;                  // 退出・再入室のとき、予約済みの演出を無効にするための番号
-let raidSurvivor = null;                 // 残った1体
+let raidSurvivor = null;                 // 覚醒するキャラ(2体のときは先頭の1体。戦いの先頭=raidFighter になる)
+let raidAwakenedSubjects = [];           // 覚醒したキャラの一覧(通常は1体。特別ルートだけ2体)
 let raidDeployed = [];                   // 出撃しているキャラ(画面の左に並ぶ最大4体)
 
 function raidEventLater(token, ms, fn) {
@@ -3413,14 +3591,28 @@ function raidGoldFlash() {
 
 // 覚醒: 残った1体だけが画面に残り、金色に光る。ここから問題は「必ず正解」になる
 function awakenRaidSurvivor(token, withScript) {
+    // 負けイベを最後まで見た人は、覚醒する前に覚醒の漫画を見る(変身後に入室した人は見ない)
+    if (withScript && raidActive) {
+        const key = raidAwakenedSubjects.length > 1 ? "pair" : subjectMeta[raidSurvivor].imgBase;
+        showAwakenManga(key, () => {
+            if (raidActive && token === raidEventToken) applyRaidAwakening(token, true);   // 退出・レイド終了していたら、何もしない
+        });
+        return;
+    }
+    applyRaidAwakening(token, withScript);
+}
+
+function applyRaidAwakening(token, withScript) {
     raidStage = "awakened";
     raidFighter = raidSurvivor;
     if (raidActive) setBgmScene("raid2");            // キャラが覚醒した瞬間に、第二形態の曲へ切り替える(変身後に入室した人は、入室してすぐ)
     clearRaidEventClasses();
     setBattleCharacterDisplay(raidFighter);          // 残った1体だけを表示(raidStage が awakened なので、控えは出ない)
     refreshSkillBarForSubject();                     // スキル欄も、残った1体のものにする(覚醒中は使えない)
-    const slot0 = document.getElementById("party-slot-0");
-    if (slot0) slot0.classList.add("awakened");
+    for (let i = 0; i < battlePartySlots.length; i++) {      // 覚醒したキャラ全員が、金色に光る
+        const el = document.getElementById(`party-slot-${i}`);
+        if (el) el.classList.add("awakened");
+    }
 
     const lv = Math.max(1, characterLevels[raidFighter].level);
     const stats = getPlayerStats(lv);
@@ -3429,16 +3621,41 @@ function awakenRaidSurvivor(token, withScript) {
     updateRaidHeartsUI();
 
     setSpecialTimerUI("✨ 覚醒中 ― 必ず正解！", "#ffcc33");
-    const name = subjectMeta[raidFighter].name;
+    const duo = raidAwakenedSubjects.length > 1;
+    const name = duo ? raidNamesOf(raidAwakenedSubjects) : subjectMeta[raidFighter].name;
     if (withScript) {
         raidGoldFlash();
-        showBattleMessage(`✨ ${name}が覚醒した！ どんな問題も必ず正解になる！`);
+        showBattleMessage(duo
+            ? `✨ ${name}が、二人同時に覚醒した！ どんな問題も必ず正解になる！`
+            : `✨ ${name}が覚醒した！ どんな問題も必ず正解になる！`);
     } else {
-        showBattleMessage(`✨ 覚醒した${name}で戦おう！ どんな問題も必ず正解になる！`);
+        showBattleMessage(duo
+            ? `✨ 覚醒した${name}の二人で戦おう！ どんな問題も必ず正解になる！`
+            : `✨ 覚醒した${name}で戦おう！ どんな問題も必ず正解になる！`);
     }
     raidEventLater(token, withScript ? 2000 : 900, () => {
         generateRaidQuestion();                      // タイマーは動かさない
     });
+}
+
+let raidAlive = [];                      // 負けイベ中に、まだ倒されていないキャラ
+
+// ✨ 特別ルート: 出撃に「結月」と「エルメシア」の両方がいるときだけ、この2人は倒されず、2人そろって覚醒する
+const RAID_PAIR = ["国語", "英語"];      // 国語=紫鳴結月 / 英語=エルメシア
+function raidPairDeployed() {
+    return RAID_PAIR.every(sub => raidDeployed.includes(sub));
+}
+function raidAliveTarget() {             // 負けイベが終わる人数(通常は1体 / 特別ルートは2体)
+    return raidPairDeployed() ? RAID_PAIR.length : 1;
+}
+function raidNamesOf(list) {
+    const short = { "国語": "結月", "英語": "エルメシア" };
+    return list.map(sub => short[sub] || subjectMeta[sub].name).join("と");
+}
+// 覚醒するキャラを決める(特別ルートなら2人 / 通常は最後に立っている1体)
+function decideRaidAwakened() {
+    raidAwakenedSubjects = raidPairDeployed() ? RAID_PAIR.slice() : [raidAlive[0] || raidFighter];
+    raidSurvivor = raidAwakenedSubjects[0];
 }
 
 function startRaidSecondPhaseEvent(lateJoin) {
@@ -3449,46 +3666,85 @@ function startRaidSecondPhaseEvent(lateJoin) {
 
     // 変身したあとに入室した人: 負けイベは飛ばして、すぐ覚醒した状態で始める
     if (lateJoin) {
-        raidSurvivor = raidFighter;
+        raidAlive = [raidFighter];
+        decideRaidAwakened();                // 特別ルートの編成なら、最初から2人が覚醒した状態で始まる
         awakenRaidSurvivor(token, false);
         return;
     }
 
     raidStage = "loss";
     setSpecialTimerUI("⚠ 第二形態", "#cc3355");
+    raidAlive = raidDeployed.slice();
 
-    const deployed = raidDeployed.slice();
-    // 出撃しているキャラから、全員同じ確率で1体だけ残す
-    raidSurvivor = deployed[Math.floor(Math.random() * deployed.length)];
-    const vanishing = deployed.filter(sub => sub !== raidSurvivor);
-    const survivorName = subjectMeta[raidSurvivor].name;
+    // 倒されるキャラがいない(出撃が1体だけ / 特別ルートで出撃が2人だけ): そのまま覚醒へ
+    if (raidAlive.length <= raidAliveTarget()) {
+        decideRaidAwakened();
+        raidEventLater(token, RAID_EVENT_START_DELAY_MS, () => raidSurvivorScene(token, false));
+        return;
+    }
 
-    let t = RAID_EVENT_START_DELAY_MS;
-    raidEventLater(token, t, () => showBattleMessage("…第二形態の圧倒的な力が、仲間たちを飲み込んでいく！"));
-    t += 1600;
+    // 変身の演出が落ち着いたら、問題を出し始める(正解しても通じない)
+    raidEventLater(token, RAID_EVENT_START_DELAY_MS, () => {
+        showBattleMessage("…第二形態の圧倒的な力！ どんな攻撃も、もう通じない！");
+        generateRaidQuestion();
+        startTimer();
+    });
+}
 
-    vanishing.forEach(sub => {
-        raidEventLater(token, t, () => {
-            const idx = raidDeployed.indexOf(sub);
-            const el = document.getElementById(`party-slot-${idx}`);
-            if (el) el.classList.add("vanished");
-            flashScreen("wrong");
-            showBattleMessage(`💨 ${subjectMeta[sub].name}が消滅した…`);
+// 負けイベ中の1問が終わったとき(kind: "correct" 正解 / "wrong" 不正解 / "timeup" 時間切れ)。
+// 答えが合っていても、攻撃は通じない。出撃キャラの1体が、一撃で倒される
+function raidLossBlow(kind, selectedIndex) {
+    const token = raidEventToken;
+    lockRaidChoices(true);
+
+    const correctBtn = document.getElementById("choice" + raidQuestion.answer);
+    if (correctBtn) { correctBtn.style.background = "#004400"; correctBtn.style.borderColor = "#00ff00"; }
+    if (kind === "wrong") {
+        const wrongBtn = document.getElementById("choice" + selectedIndex);
+        if (wrongBtn) { wrongBtn.style.background = "#440000"; wrongBtn.style.borderColor = "#ff0000"; }
+    }
+
+    // まだ立っているキャラから、全員同じ確率で1体(特別ルートでは、結月とエルメシアは倒されない)
+    const pair = raidPairDeployed();
+    const candidates = raidAlive.filter(sub => !(pair && RAID_PAIR.includes(sub)));
+    const victim = candidates[Math.floor(Math.random() * candidates.length)];
+    raidAlive = raidAlive.filter(sub => sub !== victim);
+
+    const head = kind === "correct" ? "✅ 正解…のはずが、第二形態には通じない！"
+               : kind === "wrong"   ? "❌ 不正解！"
+               :                      "⌛ 時間切れ！";
+    flashScreen("wrong");
+    showBattleMessage(`${head}\n💥 ${subjectMeta[victim].name}が一撃で倒された…`);
+    const el = document.getElementById(`party-slot-${raidDeployed.indexOf(victim)}`);
+    if (el) el.classList.add("vanished");
+
+    if (raidAlive.length <= raidAliveTarget()) {
+        decideRaidAwakened();
+        raidEventLater(token, 1800, () => raidSurvivorScene(token, true));
+    } else {
+        raidEventLater(token, RAID_EVENT_STEP_MS + 600, () => {
+            if (raidStage !== "loss") return;
+            generateRaidQuestion();
+            startTimer();
         });
-        t += RAID_EVENT_STEP_MS + 300;
-    });
+    }
+}
 
-    raidEventLater(token, t, () => {
-        const idx = raidDeployed.indexOf(raidSurvivor);
-        const el = document.getElementById(`party-slot-${idx}`);
+// 最後の1体が光って、そのあと覚醒する
+function raidSurvivorScene(token, hadFallen) {
+    raidAwakenedSubjects.forEach(sub => {
+        const el = document.getElementById(`party-slot-${raidDeployed.indexOf(sub)}`);
         if (el) el.classList.add("survivor");
-        showBattleMessage(vanishing.length
-            ? `…残されたのは、${survivorName}だけだ。`
-            : `${survivorName}は、たった一人でも立ち向かう…`);
     });
-    t += 2200;
-
-    raidEventLater(token, t, () => awakenRaidSurvivor(token, true));
+    if (raidAwakenedSubjects.length > 1) {
+        showBattleMessage(hadFallen
+            ? `…立っているのは、${raidNamesOf(raidAwakenedSubjects)}の二人だけだ。`
+            : `${raidNamesOf(raidAwakenedSubjects)}は、二人で立ち向かう…`);
+    } else {
+        const name = subjectMeta[raidSurvivor].name;
+        showBattleMessage(hadFallen ? `…残されたのは、${name}だけだ。` : `${name}は、たった一人でも立ち向かう…`);
+    }
+    raidEventLater(token, 2200, () => awakenRaidSurvivor(token, true));
 }
 
 function checkRaidPhase(hp, maxHp) {
@@ -3531,7 +3787,10 @@ function generateRaidQuestion() {
 
 function handleRaidAnswer(selectedIndex) {
     stopTimer();
-    if (raidStage === "loss") return;                // 負けイベ中は、回答を受け付けない
+    if (raidStage === "loss") {                      // 負けイベ中: 答えが合っていても、攻撃は通じない
+        if (raidAlive.length > raidAliveTarget()) raidLossBlow(selectedIndex === raidQuestion.answer ? "correct" : "wrong", selectedIndex);
+        return;
+    }
 
     const lv = Math.max(1, characterLevels[raidFighter].level);
     const stats = getPlayerStats(lv);
@@ -3547,8 +3806,8 @@ function handleRaidAnswer(selectedIndex) {
         const dmg = Math.max(stats.attack, Math.ceil(maxHp * RAID_AWAKEN_DAMAGE_RATIO));
         flashScreen("correct");
         showBattleMessage(`✨ 覚醒の力！ どんな答えも正解になる！ ${dmg} ダメージ！`);
-        const attacker = pickAttacker(raidFighter);                // 覚醒後の候補は残った1体だけなので、必ずその1体が攻撃する
-        playSpriteState(raidFighter, "attack");
+        const attacker = pickAttacker(raidFighter);                // 覚醒後の候補は覚醒したキャラだけ(通常1体 / 特別ルートは2体からランダム)
+        if (attacker === raidFighter) playSpriteState(raidFighter, "attack");
         playAttackPose(attacker);
 
         const pickedBtn = document.getElementById("choice" + selectedIndex);
@@ -3613,9 +3872,11 @@ function handleRaidAnswer(selectedIndex) {
 function onRaidVictory() {
     if (!raidActive) return; // 二重発火防止
     raidActive = false;
+    closeMangaViewer();                  // 覚醒の漫画を見ている途中でボスが倒れたときは、漫画を閉じて勝利へ
     stopTimer();
     if (raidStage === "awakened" && raidSurvivor) {
-        alert(`🎉 ${subjectMeta[raidSurvivor].name}の覚醒の一撃で、ボスは倒れた！\n…すべてが終わった。\nナイスファイト、${playerCallName()}！`);
+        const who = raidAwakenedSubjects.length > 1 ? `${raidNamesOf(raidAwakenedSubjects)}の二人` : subjectMeta[raidSurvivor].name;
+        alert(`🎉 ${who}の覚醒の一撃で、ボスは倒れた！\n…すべてが終わった。\nナイスファイト、${playerCallName()}！`);
     } else {
         alert(`🎉 レイドボス討伐成功！みんなの協力で勝利した！\nナイスファイト、${playerCallName()}！`);
     }
