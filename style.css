@@ -613,28 +613,42 @@ body {
 
 
 /* ==========================================
-   👹 レイドボス(第一形態): 画面の右端へはみ出して、大きく表示する
-   大きさを変えたいときは、下の --raid-boss-scale(味方キャラの何倍の幅か)を変える
+   👹 レイドバトルの配置(縦並び)
+   上から: タイマー → レイドボス → ボスの名前・HP → 味方キャラ(横一列) → スキル欄
+   ・ボスは、味方キャラより上の空いている場所いっぱいに大きく表示する(第一・第二形態とも)
+   ・昇格戦は、これまでどおり 味方=左 / 敵=右 のまま
    ========================================== */
 #battlefield.raid-mode {
-    --enemy-px: calc(var(--char) * 2);
-    --raid-boss-scale: 3.8;   /* レイドボス(第一形態)の幅 = 味方キャラの何倍か。大きくしたいときは、ここを上げる */
+    flex-direction: column;
+    gap: 4px;
 }
-
-/* 第一形態は、敵エリアの幅に収めず、右の画面の端へはみ出して大きく表示する(はみ出した分は見切れてOK) */
-#battlefield.raid-mode:not(.raid-phase2) #enemy-area {
+#battlefield.raid-mode #enemy-area {
+    order: 1;
+    flex: 1 1 0;
+    width: 100%;
     overflow: visible;
 }
-#battlefield.raid-mode:not(.raid-phase2) #boss-img-wrap {
-    width: calc(var(--char) * var(--raid-boss-scale));
-    max-width: none;
-    height: calc(var(--char) * var(--raid-boss-scale) * 0.7);
-    align-self: flex-end;
-    margin-right: -60px;
+#battlefield.raid-mode #boss-img-wrap {
+    flex: 1 1 0;
+    min-height: 0;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    margin: 0;
+    align-self: center;
     overflow: visible;
 }
-/* 大きなボスと重なっても、味方は手前に表示する */
+#battlefield.raid-mode #enemy-area > div:last-child {
+    margin-bottom: 0;
+}
+/* 味方は、ボスの下・スキル欄の上に、横一列で並べる(大きなボスと重なっても手前に表示) */
 #battlefield.raid-mode #party-display-area {
+    order: 2;
+    flex: 0 0 auto;
+    flex-direction: row;
+    justify-content: center;
+    align-items: flex-end;
+    gap: 10px;
     position: relative;
     z-index: 2;
 }
@@ -707,24 +721,10 @@ body {
 
 /* ==========================================
    👹 レイドボスの第二形態
-   ・第一形態と同じ高さのまま、横に広がる絵(オーラ)の分だけ幅を広げる
-   ・右端は少し画面の外に出し(見切れてOK)、左へはオーラが広がる。味方は手前に表示
-   大きさを変えたいときは、下の 4.6 / 2.57 を変える(幅 : 高さ = 1.79 : 1 の絵なので、比率を保つと自然)
+   ・配置は第一形態と同じ(ボスが上、味方が下)。ボスの絵(オーラ込み)は、枠に収まるよう自動で縮む
    ========================================== */
 #battlefield.raid-phase2 #enemy-area {
     overflow: visible;
-}
-#battlefield.raid-phase2 #boss-img-wrap {
-    width: calc(var(--char) * 4.6);
-    max-width: none;
-    height: calc(var(--char) * 2.57);
-    align-self: flex-end;
-    margin-right: -40px;
-    overflow: visible;
-}
-#battlefield.raid-phase2 #party-display-area {
-    position: relative;
-    z-index: 2;
 }
 
 /* 変身の演出: 全画面のフラッシュ / 画面の揺れ / 登場時のドンッという拡大 */
