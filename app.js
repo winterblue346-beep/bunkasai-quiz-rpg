@@ -51,7 +51,7 @@ let raidQuestion = null;
 let raidBossHpListenerAttached = false;
 let raidPlayersListenerAttached = false;
 let raidStatusListenerAttached = false;
-const RAID_DEFAULT_HP = 500;
+const RAID_DEFAULT_HP = 100000;
 let raidActive = false;      // ロビー〜バトル中は true
 let raidInLobby = false;     // ロビー待機中だけ true(この間だけ出撃通知で戦闘へ入る)
 let lobbyEnterToken = 0;     // 入室中に「抜ける」を押された場合の中断用
@@ -2352,6 +2352,9 @@ function selectTrialChoice(selectedIndex) {
 //        覚醒したキャラの手でボスを倒して勝利したあとに出る → 閉じたら拠点へ戻る
 //        特別ルートでは、2人の漫画が出る: 結月+エルメシア=manga_farewell_pair.webp / アルゲブラ+ファイ=manga_farewell_pair_algebra_phi.webp
 //        覚醒する前に、ほかのプレイヤーがボスを倒した場合は出ない
+//   ④ オープニング漫画: manga_opening.webp
+//        ゲームを初めて開いたとき(チュートリアルの前)に、一度だけ出る → 閉じたらチュートリアルへ
+//        ?reset=1 でセーブを消して始め直したときも、もう一度出る
 // ==========================================
 const MANGA_DATA = {
     lewis: { w: 940, h: 1673, cuts: [419, 798, 1108, 1376] },
@@ -2373,6 +2376,8 @@ const MANGA_AWAKEN_DATA = {
     algebra: { w: 941, h: 1671, cuts: [333, 601, 895, 1302] },
     yuzuki: { w: 941, h: 1672, cuts: [288, 686, 1034] }
 };
+
+const MANGA_OPENING_DATA = { w: 1312, h: 1199, cuts: [271, 628, 867] };   // オープニング(manga_opening.webp)
 
 const MANGA_FAREWELL_DATA = {
     pair_algebra_phi: { w: 941, h: 1672, cuts: [338, 647, 974, 1310] },
@@ -2507,6 +2512,11 @@ function showRecruitManga(subject, onClose) {
     const meta = subjectMeta[subject];
     const data = meta ? MANGA_DATA[meta.imgBase] : null;
     showMangaViewer(meta ? `manga_${meta.imgBase}.webp` : "", data, onClose, "▼ タップして閉じる");
+}
+
+// ④ オープニング漫画(ゲームを初めて開いたとき)。onClose: 閉じたあとにすること(チュートリアルへ)
+function showOpeningManga(onClose) {
+    showMangaViewer("manga_opening.webp", MANGA_OPENING_DATA, onClose, "▼ タップして、はじめる");
 }
 
 // ③ レイドが終わったあとの漫画。key: キャラの接頭辞 / 特別ルート(2人)なら "pair"
@@ -4177,68 +4187,6 @@ Lv1：5個 / Lv2：8個 / Lv3：11個
 キャラのレベルが高いほど
 与えるダメージが大きくなります！
         `
-    },
-    {
-        title: "✨ スキル",
-        content: `
-バトル中、出撃しているキャラ
-全員のスキルが、問題の下の
-ボタンに並びます。
-
-📋 使い方
-・問題に答える前にタップして発動
-・使ったあとは「クールタイム」
-　（時間ではなく、問題に正解した
-　回数で数える）
-・ボタンの「あと◯問正解」が0に
-　なると、また使える
-・戦闘の始まりは、全部使える
-・効果の残りは、スキル欄の上に表示
-
-💡 ポイント
-キャラのレベルが上がると
-強くなるスキルもあります！
-レイドの変身後イベント中は
-スキルを使えません。
-        `
-    },
-    {
-        title: "🎴 キャラ別スキル",
-        content: `
-🔥 紫鳴結月「紫炎の魔法」
-攻撃力の2〜3倍で攻撃。
-40%で会心（ダメージ2倍）
-CT：3問正解
-
-⛓️ アルゲブラ「行動阻害」
-3問のあいだ、間違えても
-ダメージを受けない
-CT：5問正解
-
-✨ エルメシア「光のビーム」
-攻撃力の2〜3倍で攻撃し、
-ハートも回復
-CT：4問正解
-
-🪞 ファイ「攻撃反射」
-3問のあいだ、受けるダメージを
-無効にして、敵に200ダメージを反射
-CT：5問正解
-
-☠️ ルイス「毒の霧」
-4〜6問のあいだ、1問ごとに
-敵へ50ダメージ
-CT：6問正解
-
-⚔️ 大和誠「抜刀」
-攻撃力の2〜3倍で攻撃し、
-3問のあいだ敵の攻撃を半減
-CT：4問正解
-
-🌍 伊能大地「全体防御」
-3問のあいだ、ダメージ無効
-CT：5問正解
-        `
     }
 ];
 
@@ -4257,7 +4205,11 @@ function renderTutorialPage() {
     const prevBtn = document.getElementById("tutorial-prev-btn");
     const nextBtn = document.getElementById("tutorial-next-btn");
 
-    if (pageNum) pageNum.innerText = tutorialCurrentPage + 1;
+    if (pageNum) {
+        pageNum.innerText = tutorialCurrentPage + 1;
+        // 「/ 4」の総ページ数は index.html に固定で書かれているので、実際のページ数に合わせて直す
+        if (pageNum.nextSibling && pageNum.nextSibling.nodeType === 3) pageNum.nextSibling.textContent = ` / ${tutorialPages.length}`;
+    }
 
     if (content) {
         content.innerHTML = `
@@ -4347,8 +4299,11 @@ function initGame() {
     if (seen) {
         finishTutorial();
     } else {
-        safeStorageSet("tutorialSeen", "true");
-        showTutorial();
+        // 初めて開いたとき: オープニング漫画 → チュートリアル → 名前入力
+        showOpeningManga(() => {
+            safeStorageSet("tutorialSeen", "true");
+            showTutorial();
+        });
     }
 }
 
