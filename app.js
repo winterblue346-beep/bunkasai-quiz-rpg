@@ -20,7 +20,10 @@ const subjectMeta = {
     "物理": { cardId: "physics", name: "ファイ", emoji: "🍎", imgBase: "phi" },
     "化学": { cardId: "chemistry", name: "ルイス・ジョンソン", emoji: "🧪", imgBase: "lewis" },
     "歴史": { cardId: "history", name: "大和誠", emoji: "⚔️", imgBase: "yamato" },
-    "地理": { cardId: "geography", name: "伊能大地", emoji: "🗺️", imgBase: "inoh" }
+    "地理": { cardId: "geography", name: "伊能大地", emoji: "🗺️", imgBase: "inoh" },
+    // ゲスト(仲間にはならず、試練・編成にも出ない。レイドの特定の場面にだけ登場する)
+    //   画像: elis_battle_normal.png(通常) / elis_battle_shock.png(被弾) / elis_cutin.webp(攻撃のカットイン)
+    "エリス": { cardId: null, name: "エリス・ジョンソン", emoji: "👧", imgBase: "elis", guest: true }   // ルイスの妹
 };
 
 // --- 📝 試練（10問クイズ）用の状態管理 ---
@@ -48,7 +51,7 @@ let raidQuestion = null;
 let raidBossHpListenerAttached = false;
 let raidPlayersListenerAttached = false;
 let raidStatusListenerAttached = false;
-const RAID_DEFAULT_HP = 100000;
+const RAID_DEFAULT_HP = 100;
 let raidActive = false;      // ロビー〜バトル中は true
 let raidInLobby = false;     // ロビー待機中だけ true(この間だけ出撃通知で戦闘へ入る)
 let lobbyEnterToken = 0;     // 入室中に「抜ける」を押された場合の中断用
@@ -1682,6 +1685,7 @@ function renderPartyScreen() {
 
     // ハブ(試練)画面のキャラカードと同じデザインで並べる
     Object.keys(subjectMeta).forEach(subject => {
+        if (subjectMeta[subject].guest) return;          // ゲストは、編成画面には出さない
         const data = characterLevels[subject];
         const meta = subjectMeta[subject];
         const unlocked = data && data.level > 0;
@@ -1864,6 +1868,7 @@ function updateHubUI() {
     }
 
     Object.keys(subjectMeta).forEach(subject => {
+        if (subjectMeta[subject].guest) return;          // ゲストは、拠点のカードには出さない
         const data = characterLevels[subject];
         if (!data) return;
         const meta = subjectMeta[subject];
@@ -2341,8 +2346,12 @@ function selectTrialChoice(selectedIndex) {
 //        キャラの試練に初めて合格した直後に出る → 閉じたら拠点へ戻る
 //   ② レイドで覚醒するときの漫画: manga_awaken_キャラ接頭辞.webp(例: manga_awaken_lewis.webp)
 //        第二形態の負けイベのあと、キャラが覚醒する直前に出る → 閉じたら覚醒して決戦が始まる
-//        結月とエルメシアの特別ルートでは、2人の漫画 manga_awaken_pair.webp が出る
+//        特別ルートでは、2人の漫画が出る: 結月+エルメシア=manga_awaken_pair.webp / アルゲブラ+ファイ=manga_awaken_pair_algebra_phi.webp
 //        変身したあとに入室した人(負けイベを見ていない人)には出ない
+//   ③ レイドが終わったあとの漫画(お別れ): manga_farewell_キャラ接頭辞.webp(例: manga_farewell_lewis.webp)
+//        覚醒したキャラの手でボスを倒して勝利したあとに出る → 閉じたら拠点へ戻る
+//        特別ルートでは、2人の漫画が出る: 結月+エルメシア=manga_farewell_pair.webp / アルゲブラ+ファイ=manga_farewell_pair_algebra_phi.webp
+//        覚醒する前に、ほかのプレイヤーがボスを倒した場合は出ない
 // ==========================================
 const MANGA_DATA = {
     lewis: { w: 940, h: 1673, cuts: [419, 798, 1108, 1376] },
@@ -2354,6 +2363,7 @@ const MANGA_DATA = {
     yuzuki: { w: 941, h: 1672, cuts: [571, 1081] }
 };
 const MANGA_AWAKEN_DATA = {
+    pair_algebra_phi: { w: 941, h: 1672, cuts: [294, 574, 896, 1068, 1321] },
     pair: { w: 1024, h: 1536, cuts: [188, 358, 606] },
     yamato: { w: 941, h: 1672, cuts: [276, 582, 838, 1322] },
     phi: { w: 1024, h: 1536, cuts: [371, 685, 799] },
@@ -2362,6 +2372,18 @@ const MANGA_AWAKEN_DATA = {
     elmesia: { w: 941, h: 1672, cuts: [284, 592, 874, 1392] },
     algebra: { w: 941, h: 1671, cuts: [333, 601, 895, 1302] },
     yuzuki: { w: 941, h: 1672, cuts: [288, 686, 1034] }
+};
+
+const MANGA_FAREWELL_DATA = {
+    pair_algebra_phi: { w: 941, h: 1672, cuts: [338, 647, 974, 1310] },
+    lewis: { w: 1024, h: 1536, cuts: [256, 566, 850, 1148] },
+    algebra: { w: 1024, h: 1536, cuts: [438, 812, 1127] },
+    inoh: { w: 1024, h: 1536, cuts: [279, 766, 1184] },
+    yamato: { w: 1024, h: 1536, cuts: [312, 640, 1048] },
+    yuzuki: { w: 1024, h: 1536, cuts: [348, 691, 1154] },
+    phi: { w: 941, h: 1672, cuts: [289, 581, 848, 1127] },
+    elmesia: { w: 1024, h: 1536, cuts: [378, 806, 1166] },
+    pair: { w: 941, h: 1672, cuts: [308, 569, 772, 1047, 1429] }
 };
 
 let mangaOverlayOpen = false;
@@ -2477,6 +2499,7 @@ function showMangaViewer(file, data, onClose, lastHint) {
 // 開いている漫画があれば、あとの処理はせずに閉じる
 function closeMangaViewer() {
     if (mangaCloseNow) mangaCloseNow();
+    if (endingCloseNow) endingCloseNow();                // エンディングを流している途中で拠点へ戻る場合も、閉じる
 }
 
 // ① 仲間になった直後の漫画。subject: 仲間になった教科 / onClose: 閉じたあとにすること(拠点へ戻るなど)
@@ -2486,9 +2509,186 @@ function showRecruitManga(subject, onClose) {
     showMangaViewer(meta ? `manga_${meta.imgBase}.webp` : "", data, onClose, "▼ タップして閉じる");
 }
 
+// ③ レイドが終わったあとの漫画。key: キャラの接頭辞 / 特別ルート(2人)なら "pair"
+function showFarewellManga(key, onClose) {
+    showMangaViewer(`manga_farewell_${key}.webp`, MANGA_FAREWELL_DATA[key], onClose, "▼ タップして、拠点へ戻る");
+}
+
 // ② レイドで覚醒するときの漫画。key: キャラの接頭辞 / 特別ルート(2人)なら "pair"
 function showAwakenManga(key, onClose) {
     showMangaViewer(`manga_awaken_${key}.webp`, MANGA_AWAKEN_DATA[key], onClose, "▼ タップして、覚醒へ！");
+}
+
+// ==========================================
+// 🎬 エンディング(エンドロール)
+//   ・レイドに勝利したあと、お別れの漫画のあとに流れる(漫画が出ない人は、勝利のメッセージのあとにすぐ流れる)
+//   ・動画(ending_roll.mp4)を背景に、名前が下から上へ流れる。曲は雨の音(bgm_ending.mp3)
+//   ・流れ終わると「THE END」が出て、タップすると拠点へ戻る。右下の「スキップ」でいつでも戻れる
+//   ・動画が読み込めなくても、夜明け色の背景で名前は流れる
+//   ・載せる名前は、下の ENDING_CREDITS に書く(役割ごとのまとまりを、上から順に流す)
+// ==========================================
+const ENDING_VIDEO_FILE = "ending_roll.mp4";   // 背景の動画(ループ再生。音声は使わない)
+const ENDING_SCROLL_PX_PER_SEC = 42;           // 名前が流れる速さ(大きいほど速い。全体の長さは、載せる名前の量で決まる)
+const ENDING_PLAY_MODE = "always";             // "always" = 勝利するたびに流す / "first" = 初めて勝利したときだけ流す
+const ENDING_SEEN_KEY = "endingSeen";
+
+// 役割(title)ごとに、名前(names)を並べる。names が空のまとまりは出ない。
+// names には、文字列のほか、「名前を返す関数」も書ける(主人公の名前など)
+const ENDING_CREDITS = [
+    { title: "主人公", names: [() => getPlayerName() || "あなた"] },
+    { title: "仲間たち", names: ["紫鳴 結月", "アルゲブラ", "エルメシア・ルミナリア", "ファイ", "ルイス・ジョンソン", "大和 誠", "伊能 大地"] },
+    { title: "ゲスト出演", names: ["エリス・ジョンソン"] },
+    // ▼ 制作に関わった人(上から順に流れる。足す・並べ替えるときは、この形で書く)
+    { title: "ゼミ", names: ["柴崎ゼミ"] },
+    { title: "企画", names: ["新岡嶺"] },
+    { title: "プログラミング", names: ["アルセリア"] },
+    { title: "キャラデザイン", names: ["菅 肇真"] },
+    { title: "BGM", names: ["tak_mfk 提供", "まんぼう二等兵 提供"] },
+    { title: "ポスター", names: ["安藤裕基", "松原快青", "杉浦琉生"] },
+];
+const ENDING_TITLE = "文化祭クイズRPG";           // 最初に流れるタイトル
+const ENDING_THANKS = "Thank you for playing!";     // 最後に流れるひとこと
+
+let endingOpen = false;
+let endingCloseNow = null;               // 開いているエンディングを、いますぐ閉じる関数
+
+function ensureEndingStyle() {
+    if (document.getElementById("ending-style")) return;
+    const st = document.createElement("style");
+    st.id = "ending-style";
+    st.textContent = `
+#ending-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 20000; overflow: hidden; background: linear-gradient(#0b1236 0%, #4a3f7d 55%, #f0a38a 100%); -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+#ending-video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+#ending-shade { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(rgba(0,0,20,0.30), rgba(0,0,20,0.12) 50%, rgba(40,10,10,0.35)); pointer-events: none; }
+#ending-credits { position: absolute; top: 0; left: 0; right: 0; padding: 0 18px; text-align: center; color: #fff; text-shadow: 0 2px 6px rgba(0,0,0,0.85), 0 0 14px rgba(0,0,30,0.7); will-change: transform; }
+#ending-credits .ec-title { font-size: 26px; font-weight: bold; letter-spacing: 3px; margin-bottom: 70px; }
+#ending-credits .ec-block { margin-bottom: 54px; }
+#ending-credits .ec-role { font-size: 13px; letter-spacing: 4px; color: #ffe9a8; margin-bottom: 14px; }
+#ending-credits .ec-name { font-size: 19px; font-weight: bold; line-height: 1.55; }
+#ending-credits .ec-thanks { font-size: 20px; font-weight: bold; margin-top: 30px; letter-spacing: 1px; }
+#ending-end { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: none; flex-direction: column; align-items: center; justify-content: center; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.85); text-align: center; }
+#ending-end.show { display: flex; animation: ending-fade 1.6s ease-out; }
+#ending-end .ee-main { font-size: 34px; font-weight: bold; letter-spacing: 6px; }
+#ending-end .ee-hint { margin-top: 26px; font-size: 13px; animation: manga-blink 1.2s ease-in-out infinite alternate; }
+@keyframes ending-fade { from { opacity: 0; } to { opacity: 1; } }
+#ending-skip { position: absolute; bottom: 8px; right: 8px; z-index: 2; padding: 5px 10px; font-size: 12px; font-weight: bold; color: #fff; background: rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.6); border-radius: 14px; cursor: pointer; }
+`;
+    document.head.appendChild(st);
+}
+
+// エンドロールを流す。onClose: 終わったあとにすること(拠点へ戻る)
+function showEnding(onClose) {
+    const done = typeof onClose === "function" ? onClose : () => {};
+    const container = document.getElementById("game-container");
+    const alreadySeen = safeStorageGet(ENDING_SEEN_KEY) === "1";
+    if (!container || endingOpen || (ENDING_PLAY_MODE === "first" && alreadySeen)) { done(); return; }
+
+    ensureEndingStyle();
+    endingOpen = true;
+    safeStorageSet(ENDING_SEEN_KEY, "1");
+
+    const overlay = document.createElement("div");
+    overlay.id = "ending-overlay";
+
+    const video = document.createElement("video");
+    video.id = "ending-video";
+    video.muted = true;
+    video.defaultMuted = true;
+    video.loop = true;
+    video.autoplay = true;
+    video.playsInline = true;
+    video.setAttribute("playsinline", "");
+    video.setAttribute("webkit-playsinline", "");
+    video.preload = "auto";
+    video.onerror = () => video.remove();             // 動画が読めなくても、背景色のまま名前は流れる
+    video.src = ENDING_VIDEO_FILE;
+    overlay.appendChild(video);
+
+    const shade = document.createElement("div");
+    shade.id = "ending-shade";
+    overlay.appendChild(shade);
+
+    // 名前の一覧を組み立てる
+    const credits = document.createElement("div");
+    credits.id = "ending-credits";
+    const esc = t => String(t).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    let html = `<div class="ec-title">${esc(ENDING_TITLE)}</div>`;
+    ENDING_CREDITS.forEach(block => {
+        const names = (block.names || []).map(n => (typeof n === "function" ? n() : n)).filter(n => n);
+        if (!names.length) return;
+        html += `<div class="ec-block"><div class="ec-role">${esc(block.title)}</div>` +
+                names.map(n => `<div class="ec-name">${esc(n)}</div>`).join("") + `</div>`;
+    });
+    html += `<div class="ec-thanks">${esc(ENDING_THANKS)}</div>`;
+    credits.innerHTML = html;
+    overlay.appendChild(credits);
+
+    const endBox = document.createElement("div");
+    endBox.id = "ending-end";
+    endBox.innerHTML = '<div class="ee-main">THE END</div><div class="ee-hint">▼ タップして、拠点へ戻る</div>';
+    overlay.appendChild(endBox);
+
+    const skip = document.createElement("button");
+    skip.id = "ending-skip";
+    skip.type = "button";
+    skip.innerText = "スキップ ⏭";
+    overlay.appendChild(skip);
+
+    container.appendChild(overlay);
+    setBgmScene("ending");                            // 曲は、雨の音
+
+    let closed = false;
+    let finished = false;
+    let anim = null;
+    const close = (runCallback) => {
+        if (closed) return;
+        closed = true;
+        endingOpen = false;
+        endingCloseNow = null;
+        if (anim) { try { anim.cancel(); } catch (e) {} }
+        try { video.pause(); } catch (e) {}
+        overlay.remove();
+        if (runCallback) done();
+    };
+    endingCloseNow = () => close(false);              // 退出などのときは、あとの処理はせずに閉じるだけ
+
+    const showEnd = () => {
+        if (finished || closed) return;
+        finished = true;
+        credits.style.visibility = "hidden";
+        endBox.classList.add("show");
+        skip.style.display = "none";
+    };
+
+    // 画面の下から上へ、名前をゆっくり流す(全部が見えなくなったら終わり)
+    const startRoll = () => {
+        const from = overlay.clientHeight;
+        const to = -credits.offsetHeight - 20;
+        const duration = Math.max(8000, ((from - to) / ENDING_SCROLL_PX_PER_SEC) * 1000);
+        credits.style.transform = `translateY(${from}px)`;
+        if (credits.animate) {
+            anim = credits.animate(
+                [{ transform: `translateY(${from}px)` }, { transform: `translateY(${to}px)` }],
+                { duration, easing: "linear", fill: "forwards" }
+            );
+            anim.onfinish = showEnd;
+        } else {
+            setTimeout(showEnd, duration);            // 古いブラウザ: 流さずに、名前を見せてから終わる
+            credits.style.transform = "none";
+        }
+    };
+
+    overlay.addEventListener("click", ev => {
+        if (ev.target === skip) return;
+        if (finished) close(true);                    // 流れている途中のタップは無視(うっかり飛ばさない)
+    });
+    skip.addEventListener("click", ev => { ev.stopPropagation(); close(true); });
+
+    requestAnimationFrame(() => {
+        startRoll();
+        const pr = video.play();
+        if (pr && pr.catch) pr.catch(() => {});       // 自動再生が許可されなくても、背景色で続ける
+    });
 }
 
 // ==========================================
@@ -3447,6 +3647,7 @@ function enterRaidBattle() {
     raidStage = "normal";
     raidSurvivor = null;
     raidAwakenedSubjects = [];
+    raidAwakenedKey = null;
     raidEventToken++;                                // 前回の予約済みの演出を無効にする
     raidDeployed = [raidFighter, ...playerParty.filter(sub => sub !== raidFighter)].slice(0, 4);   // 画面の左に並ぶ出撃キャラ
     setRaidBossForm(1, false);                       // 第一形態の姿・名前から始める
@@ -3553,6 +3754,7 @@ let raidStage = "normal";                // "normal"(通常) / "loss"(負けイ�
 let raidEventToken = 0;                  // 退出・再入室のとき、予約済みの演出を無効にするための番号
 let raidSurvivor = null;                 // 覚醒するキャラ(2体のときは先頭の1体。戦いの先頭=raidFighter になる)
 let raidAwakenedSubjects = [];           // 覚醒したキャラの一覧(通常は1体。特別ルートだけ2体)
+let raidAwakenedKey = null;              // 特別ルートのとき、ペアの key(漫画の名前に使う)
 let raidDeployed = [];                   // 出撃しているキャラ(画面の左に並ぶ最大4体)
 
 function raidEventLater(token, ms, fn) {
@@ -3593,7 +3795,7 @@ function raidGoldFlash() {
 function awakenRaidSurvivor(token, withScript) {
     // 負けイベを最後まで見た人は、覚醒する前に覚醒の漫画を見る(変身後に入室した人は見ない)
     if (withScript && raidActive) {
-        const key = raidAwakenedSubjects.length > 1 ? "pair" : subjectMeta[raidSurvivor].imgBase;
+        const key = raidMangaKey();
         showAwakenManga(key, () => {
             if (raidActive && token === raidEventToken) applyRaidAwakening(token, true);   // 退出・レイド終了していたら、何もしない
         });
@@ -3605,6 +3807,9 @@ function awakenRaidSurvivor(token, withScript) {
 function applyRaidAwakening(token, withScript) {
     raidStage = "awakened";
     raidFighter = raidSurvivor;
+    // ゲストの登場(特別ルートではなく、ゲストを連れたキャラが1人で覚醒したとき)
+    const guest = (!raidAwakenedKey && raidAwakenedSubjects.length === 1) ? RAID_GUESTS[raidFighter] : null;
+    if (guest && !raidAwakenedSubjects.includes(guest)) raidAwakenedSubjects = [raidFighter, guest];
     if (raidActive) setBgmScene("raid2");            // キャラが覚醒した瞬間に、第二形態の曲へ切り替える(変身後に入室した人は、入室してすぐ)
     clearRaidEventClasses();
     setBattleCharacterDisplay(raidFighter);          // 残った1体だけを表示(raidStage が awakened なので、控えは出ない)
@@ -3621,17 +3826,22 @@ function applyRaidAwakening(token, withScript) {
     updateRaidHeartsUI();
 
     setSpecialTimerUI("✨ 覚醒中 ― 必ず正解！", "#ffcc33");
-    const duo = raidAwakenedSubjects.length > 1;
+    const duo = !!raidAwakenedKey;                   // 特別ルート(2人とも覚醒)
     const name = duo ? raidNamesOf(raidAwakenedSubjects) : subjectMeta[raidFighter].name;
+    const guestName = guest ? subjectMeta[guest].name : "";
     if (withScript) {
         raidGoldFlash();
         showBattleMessage(duo
             ? `✨ ${name}が、二人同時に覚醒した！ どんな問題も必ず正解になる！`
-            : `✨ ${name}が覚醒した！ どんな問題も必ず正解になる！`);
+            : (guest
+                ? `✨ ${name}が覚醒した！ そこへ${guestName}が駆けつけた！ どんな問題も必ず正解になる！`
+                : `✨ ${name}が覚醒した！ どんな問題も必ず正解になる！`));
     } else {
         showBattleMessage(duo
             ? `✨ 覚醒した${name}の二人で戦おう！ どんな問題も必ず正解になる！`
-            : `✨ 覚醒した${name}で戦おう！ どんな問題も必ず正解になる！`);
+            : (guest
+                ? `✨ 覚醒した${name}と、駆けつけた${guestName}で戦おう！ どんな問題も必ず正解になる！`
+                : `✨ 覚醒した${name}で戦おう！ どんな問題も必ず正解になる！`));
     }
     raidEventLater(token, withScript ? 2000 : 900, () => {
         generateRaidQuestion();                      // タイマーは動かさない
@@ -3640,22 +3850,40 @@ function applyRaidAwakening(token, withScript) {
 
 let raidAlive = [];                      // 負けイベ中に、まだ倒されていないキャラ
 
-// ✨ 特別ルート: 出撃に「結月」と「エルメシア」の両方がいるときだけ、この2人は倒されず、2人そろって覚醒する
-const RAID_PAIR = ["国語", "英語"];      // 国語=紫鳴結月 / 英語=エルメシア
+// ✨ 特別ルート: 出撃に、下の「ペア」の2人がそろっているときだけ、この2人は倒されず、2人そろって覚醒する
+//   ・RAID_PAIRS の上にあるペアが優先(4人とも出撃していて、2組そろっているときは、上の組になる)
+//   ・key は漫画の画像名に使う(覚醒前: manga_awaken_キー.webp / 勝利後: manga_farewell_キー.webp)
+const RAID_PAIRS = [
+    { key: "pair",            subjects: ["国語", "英語"] },   // 国語=紫鳴結月 / 英語=エルメシア
+    { key: "pair_algebra_phi", subjects: ["数学", "物理"] }    // 数学=アルゲブラ / 物理=ファイ
+];
+function raidActivePair() {              // いまの出撃で成り立つペア(無ければ null)
+    return RAID_PAIRS.find(pr => pr.subjects.every(sub => raidDeployed.includes(sub))) || null;
+}
 function raidPairDeployed() {
-    return RAID_PAIR.every(sub => raidDeployed.includes(sub));
+    return !!raidActivePair();
 }
 function raidAliveTarget() {             // 負けイベが終わる人数(通常は1体 / 特別ルートは2体)
-    return raidPairDeployed() ? RAID_PAIR.length : 1;
+    return raidPairDeployed() ? 2 : 1;
 }
+// ✨ ゲストの登場: 特別ルートではない通常の覚醒で、このキャラが覚醒したときに、ゲストが駆けつけて一緒に戦う
+//   ・ゲストは倒されず、覚醒した本人と並んで表示され、攻撃のときは本人と同じ確率でランダムに攻撃する(カットインあり)
+//   ・左がキャラ(教科)、右がゲスト
+const RAID_GUESTS = { "化学": "エリス" };   // 化学=ルイス → エリス(ルイスの妹)
 function raidNamesOf(list) {
-    const short = { "国語": "結月", "英語": "エルメシア" };
+    const short = { "国語": "結月", "英語": "エルメシア", "数学": "アルゲブラ", "物理": "ファイ", "化学": "ルイス", "エリス": "エリス" };
     return list.map(sub => short[sub] || subjectMeta[sub].name).join("と");
 }
 // 覚醒するキャラを決める(特別ルートなら2人 / 通常は最後に立っている1体)
 function decideRaidAwakened() {
-    raidAwakenedSubjects = raidPairDeployed() ? RAID_PAIR.slice() : [raidAlive[0] || raidFighter];
+    const pr = raidActivePair();
+    raidAwakenedKey = pr ? pr.key : null;
+    raidAwakenedSubjects = pr ? pr.subjects.slice() : [raidAlive[0] || raidFighter];
     raidSurvivor = raidAwakenedSubjects[0];
+}
+// 覚醒したキャラの漫画の名前(特別ルートならペアの key / 通常はキャラの接頭辞)
+function raidMangaKey() {
+    return raidAwakenedKey || subjectMeta[raidAwakenedSubjects[0] || raidSurvivor].imgBase;
 }
 
 function startRaidSecondPhaseEvent(lateJoin) {
@@ -3705,8 +3933,8 @@ function raidLossBlow(kind, selectedIndex) {
     }
 
     // まだ立っているキャラから、全員同じ確率で1体(特別ルートでは、結月とエルメシアは倒されない)
-    const pair = raidPairDeployed();
-    const candidates = raidAlive.filter(sub => !(pair && RAID_PAIR.includes(sub)));
+    const pr = raidActivePair();
+    const candidates = raidAlive.filter(sub => !(pr && pr.subjects.includes(sub)));
     const victim = candidates[Math.floor(Math.random() * candidates.length)];
     raidAlive = raidAlive.filter(sub => sub !== victim);
 
@@ -3874,6 +4102,13 @@ function onRaidVictory() {
     raidActive = false;
     closeMangaViewer();                  // 覚醒の漫画を見ている途中でボスが倒れたときは、漫画を閉じて勝利へ
     stopTimer();
+
+    // 覚醒したキャラの手でボスを倒したときだけ、お別れの漫画を見せる(特別ルートなら2人の漫画)
+    let farewellKey = null;
+    if (raidStage === "awakened" && raidAwakenedSubjects.length) {
+        farewellKey = raidMangaKey();
+    }
+
     if (raidStage === "awakened" && raidSurvivor) {
         const who = raidAwakenedSubjects.length > 1 ? `${raidNamesOf(raidAwakenedSubjects)}の二人` : subjectMeta[raidSurvivor].name;
         alert(`🎉 ${who}の覚醒の一撃で、ボスは倒れた！\n…すべてが終わった。\nナイスファイト、${playerCallName()}！`);
@@ -3882,7 +4117,10 @@ function onRaidVictory() {
     }
     // 全員が抜けた時点で resetRaidIfEmpty が初期化する。取り残しは次のロビー入室時にも掃除される
     removeSelfFromRaidPlayers();
-    backToHub();
+    // お別れの漫画(覚醒したキャラの人だけ) → エンディング(エンドロール) → 拠点へ
+    const goEnding = () => showEnding(backToHub);
+    if (farewellKey) showFarewellManga(farewellKey, goEnding);
+    else goEnding();
 }
 
 function endBattle() {
