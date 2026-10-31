@@ -551,6 +551,8 @@ function saveGame() {
 }
 
 function loadGame() {
+    loadTrialUnlocked();
+    loadTrialHintTaps();
     const saved = safeStorageGet("characterLevels");
     if (!saved) return;
     let parsed;
@@ -1882,7 +1884,9 @@ function updateHubUI() {
         if (data.level === 0) {
             if (badge) { badge.innerText = "未開放"; badge.style.background = "#777"; }
             if (bar) bar.style.width = "0%";
-            if (txt) txt.innerText = "タップして「キャラ獲得試練」に挑戦！";
+            if (txt) txt.innerText = isTrialUnlocked(subject)
+                ? "タップして「キャラ獲得試練」に挑戦！"
+                : "📷 スキャンで試練の扉を開こう";
             card.className = "char-card locked shining-ready";
         } else if (data.level >= 3) {
             if (badge) { badge.innerText = "Lv.3 (MAX)"; badge.style.background = "#ff1177"; }
@@ -1898,13 +1902,231 @@ function updateHubUI() {
     });
 }
 
-function checkLevelUp(subject) {
+// ==========================================
+// 🗝️ 試練の扉(カメラのスキャンで開く)と、キャラのヒント
+// ==========================================
+let trialUnlockedList = [];              // スキャンして試練の扉が開いている(まだ合格していない)キャラの教科
+
+function loadTrialUnlocked() {
+    try {
+        const arr = JSON.parse(safeStorageGet("trialUnlocked") || "[]");
+        trialUnlockedList = Array.isArray(arr) ? arr.filter(sub => subjectMeta[sub] && !subjectMeta[sub].guest) : [];
+    } catch (e) {
+        trialUnlockedList = [];
+    }
+}
+function saveTrialUnlocked() {
+    safeStorageSet("trialUnlocked", JSON.stringify(trialUnlockedList));
+}
+function isTrialUnlocked(subject) {
+    return trialUnlockedList.includes(subject);
+}
+function unlockTrial(subject) {
+    if (!trialUnlockedList.includes(subject)) { trialUnlockedList.push(subject); saveTrialUnlocked(); }
+}
+function relockTrial(subject) {          // 仲間になったら、扉の記録はいらない
+    if (trialHintTaps[subject]) { delete trialHintTaps[subject]; saveTrialHintTaps(); }
+    if (trialUnlockedList.includes(subject)) {
+        trialUnlockedList = trialUnlockedList.filter(sub => sub !== subject);
+        saveTrialUnlocked();
+    }
+}
+
+// そのキャラをスキャンで見つけるための場所(SCAN_CLASS_TO_SUBJECT のクラス名)
+function scanPlaceOf(subject) {
+    return Object.keys(SCAN_CLASS_TO_SUBJECT).find(name => SCAN_CLASS_TO_SUBJECT[name] === subject) || "";
+}
+
+// カードをタップしたときに、キャラが場所を教えてくれるセリフ。{place} には、場所の名前が入る
+const TRIAL_HINT_LINES = {
+    "国語": "べ、別にあんたのために教えるわけじゃないけど……「{place}」に行ってみなさいよ。そこをカメラで写せば、私の試練の扉が開くんだから！",
+    "数学": "……試練を受けたいのだね。ヒントをあげよう。場所は「{place}」だ。そこをカメラで写してくれれば、扉は開く。",
+    "英語": "……私に会いに来てくださったのですね。「{place}」へ行って、カメラを向けてください。そこで、試練の扉が開きます。",
+    "物理": "よぉ！ 試練を受けたいのか？ なら「{place}」に行ってみな。そこをカメラで写せば、俺に会えるぜ。",
+    "化学": "やあ。僕に会いたいなら、「{place}」に行ってみて。そこをカメラで写せば、試練の扉が開くよ。",
+    "歴史": "俺に会いに来てくれたのか。「{place}」へ行ってみてくれ。そこをカメラで写せば、試練が始まる。",
+    "地理": "へへっ、試練を受けたいんだね！ 「{place}」を探してみて！ カメラで写せば、試練の扉が開くよ！"
+};
+
+function ensureHintStyle() {
+    if (document.getElementById("hint-style")) return;
+    const st = document.createElement("style");
+    st.id = "hint-style";
+    st.textContent = `
+#hint-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 20000; background: rgba(0,0,0,0.6); display: flex; flex-direction: column; justify-content: flex-end; padding: 14px 14px 18px; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+#hint-portrait { align-self: flex-start; width: 150px; height: 190px; object-fit: contain; object-position: left bottom; margin-bottom: -6px; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.7)); animation: hint-pop 0.3s ease-out; }
+#hint-portrait-fallback { align-self: flex-start; font-size: 80px; line-height: 150px; }
+#hint-box { background: rgba(20,24,40,0.96); border: 2px solid rgba(255,255,255,0.55); border-radius: 14px; padding: 12px 14px 12px; color: #fff; box-shadow: 0 6px 20px rgba(0,0,0,0.6); animation: hint-pop 0.3s ease-out; }
+#hint-name { font-size: 13px; font-weight: bold; color: #ffe27a; margin-bottom: 6px; }
+#hint-text { font-size: 15px; line-height: 1.6; min-height: 72px; white-space: pre-wrap; }
+#hint-next { font-size: 11px; color: #9fb4ff; text-align: right; min-height: 14px; margin-top: 2px; }
+#hint-btns { display: flex; gap: 8px; margin-top: 10px; }
+#hint-btns button { flex: 1; padding: 11px 6px; font-size: 13px; font-weight: bold; border-radius: 22px; border: none; cursor: pointer; color: #fff; }
+#hint-go { background: linear-gradient(135deg, #00c6ff, #0072ff); }
+#hint-close { background: #444; color: #ccc !important; }
+@keyframes hint-pop { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+`;
+    document.head.appendChild(st);
+}
+
+// ==========================================
+// 🆘 救済: スキャンする場所に行けないとき(例: 歴史の「図書館」に入れない)
+//   ・扉が閉じているカードを、決められた回数(taps)タップすると、キャラが少し話して救済をくれる
+//   ・話し終わったら、そのまま試練の問題に進む(扉は開いた扱いになる)
+//   ・救済を作りたいキャラだけ、ここに書く。lines は、セリフを順に出す(セリフ欄をタップすると次へ)
+// ==========================================
+const TRIAL_RELIEF = {
+    "歴史": {
+        taps: 2,                         // 何回目のタップで、救済になるか
+        lines: [
+            "……図書館に行けなかったのか。入れなかったり、時間が合わなかったり、そういうこともあるよな。",
+            "特別に、今回は直接、俺から試練を出そう。歴史は、積み重ねの学問だ。君のこれまでの積み重ね、見せてくれ。"
+        ],
+        goLabel: "📖 試練に挑戦する"
+    }
+};
+let trialHintTaps = {};                  // 扉が閉じているカードを、何回タップしたか(セーブされる)
+
+function loadTrialHintTaps() {
+    try {
+        const o = JSON.parse(safeStorageGet("trialHintTaps") || "{}");
+        trialHintTaps = (o && typeof o === "object" && !Array.isArray(o)) ? o : {};
+    } catch (e) { trialHintTaps = {}; }
+}
+function saveTrialHintTaps() {
+    safeStorageSet("trialHintTaps", JSON.stringify(trialHintTaps));
+}
+
+let hintOverlayOpen = false;
+let hintTimer = null;
+
+function closeTrialHint() {
+    if (hintTimer) { clearInterval(hintTimer); hintTimer = null; }
+    const el = document.getElementById("hint-overlay");
+    if (el) el.remove();
+    hintOverlayOpen = false;
+}
+
+// キャラが話すウィンドウを出す。lines: セリフ(順に出す) / go: { label, onClick } 最後のセリフのあとに出る主なボタン / closeLabel: 閉じるボタンの文字
+function openCharDialog(subject, lines, go, closeLabel) {
+    const meta = subjectMeta[subject];
+    const container = document.getElementById("game-container");
+    if (!meta || !container || hintOverlayOpen) return;
+    ensureHintStyle();
+    hintOverlayOpen = true;
+
+    const overlay = document.createElement("div");
+    overlay.id = "hint-overlay";
+
+    const portrait = document.createElement("img");
+    portrait.id = "hint-portrait";
+    portrait.alt = "";
+    portrait.src = getCharImgFile(subject, "normal");
+    portrait.onerror = () => {                         // 画像が無いときは、絵文字で代わりにする
+        const fb = document.createElement("div");
+        fb.id = "hint-portrait-fallback";
+        fb.innerText = meta.emoji || "💬";
+        portrait.replaceWith(fb);
+    };
+    overlay.appendChild(portrait);
+
+    const box = document.createElement("div");
+    box.id = "hint-box";
+    const nameEl = document.createElement("div");
+    nameEl.id = "hint-name";
+    nameEl.innerText = meta.name;
+    const textEl = document.createElement("div");
+    textEl.id = "hint-text";
+    const nextEl = document.createElement("div");
+    nextEl.id = "hint-next";
+    const btns = document.createElement("div");
+    btns.id = "hint-btns";
+    const goBtn = document.createElement("button");
+    goBtn.id = "hint-go";
+    goBtn.type = "button";
+    goBtn.innerText = go.label;
+    const close = document.createElement("button");
+    close.id = "hint-close";
+    close.type = "button";
+    close.innerText = closeLabel || "閉じる";
+    btns.appendChild(goBtn);
+    btns.appendChild(close);
+    box.appendChild(nameEl);
+    box.appendChild(textEl);
+    box.appendChild(nextEl);
+    box.appendChild(btns);
+    overlay.appendChild(box);
+    container.appendChild(overlay);
+
+    // セリフを1文字ずつ表示する。セリフ欄をタップすると、全部すぐ出る → もう一度タップすると、次のセリフへ
+    let lineIdx = 0;
+    let typing = false;
+    const stopTyping = () => { if (hintTimer) { clearInterval(hintTimer); hintTimer = null; } typing = false; };
+    const refreshButtons = () => {
+        const last = lineIdx >= lines.length - 1;
+        btns.style.display = (last && !typing) ? "flex" : "none";
+        nextEl.innerText = (!last && !typing) ? "▼ タップで次へ" : "";
+    };
+    const playLine = () => {
+        stopTyping();
+        const chars = Array.from(lines[lineIdx]);
+        let n = 0;
+        typing = true;
+        textEl.innerText = "";
+        refreshButtons();
+        hintTimer = setInterval(() => {
+            n++;
+            textEl.innerText = chars.slice(0, n).join("");
+            if (n >= chars.length) { stopTyping(); refreshButtons(); }
+        }, 35);
+    };
+    box.addEventListener("click", ev => {
+        if (ev.target === goBtn || ev.target === close) return;
+        if (typing) { stopTyping(); textEl.innerText = lines[lineIdx]; refreshButtons(); }
+        else if (lineIdx < lines.length - 1) { lineIdx++; playLine(); }
+    });
+    goBtn.addEventListener("click", ev => { ev.stopPropagation(); closeTrialHint(); go.onClick(); });
+    close.addEventListener("click", ev => { ev.stopPropagation(); closeTrialHint(); });
+    overlay.addEventListener("click", ev => { if (ev.target === overlay) closeTrialHint(); });   // 外側をタップしても閉じる
+    playLine();
+}
+
+// まだ試練の扉が開いていないキャラのカードをタップしたとき: キャラが、スキャンする場所を教えてくれる
+// 救済のあるキャラ(TRIAL_RELIEF)は、決められた回数目のタップで、救済になる
+function showTrialHint(subject) {
+    if (!subjectMeta[subject] || hintOverlayOpen) return;
+
+    const relief = TRIAL_RELIEF[subject];
+    trialHintTaps[subject] = (trialHintTaps[subject] || 0) + 1;
+    saveTrialHintTaps();
+
+    if (relief && trialHintTaps[subject] >= relief.taps) {
+        openCharDialog(subject, relief.lines, {
+            label: relief.goLabel || "📖 試練に挑戦する",
+            onClick: () => checkLevelUp(subject, true)       // 扉を開けて、そのまま試練の問題へ
+        }, "やめておく");
+        return;
+    }
+
+    const place = scanPlaceOf(subject);
+    const template = TRIAL_HINT_LINES[subject] || "試練を受けたいなら、キャンパスのどこかをカメラで写してみて。";
+    const line = place ? template.replace("{place}", place) : "試練を受けたいなら、キャンパスのどこかをカメラで写してみて。";
+    openCharDialog(subject, [line], { label: "📷 スキャンしに行く", onClick: openCameraScreen }, "閉じる");
+}
+
+// subject: 押した(または、スキャンで見つけた)キャラの教科 / viaScan: カメラのスキャンで見つけたときは true
+//   ・まだ仲間でないキャラの「獲得試練」は、そのキャラの場所をカメラで写さないと開かない
+//   ・カードをタップしただけのときは、試練は始まらず、キャラが場所を教えてくれる(showTrialHint)
+//   ・一度スキャンして開いた試練は、合格するまで(失敗しても)、カードをタップして何度でも挑戦できる
+function checkLevelUp(subject, viaScan) {
     
     if (!characterLevels[subject]) return;
     const data = characterLevels[subject];
     evolutionSubject = subject;
 
     if (data.level === 0) {
+        if (viaScan) unlockTrial(subject);
+        else if (!isTrialUnlocked(subject)) { showTrialHint(subject); return; }
         trialCurrentIndex = 0;
         trialCorrectCount = 0;
         showOnlyThisScreen("trial-screen");
@@ -2310,6 +2532,7 @@ function selectTrialChoice(selectedIndex) {
             if (trialCorrectCount >= 8) {
                 if (characterLevels[evolutionSubject].level === 0) {
                     recruitedNow = true;
+                    relockTrial(evolutionSubject);
                     characterLevels[evolutionSubject].level = 1;
                     const charName = subjectMeta[evolutionSubject] ? subjectMeta[evolutionSubject].name : evolutionSubject;
                     let partyMsg = "";
@@ -3423,7 +3646,7 @@ function onScanSuccess(subject, className) {
     alert(`📷 「${className}」を発見！\n${meta ? meta.name : subject}の「獲得試練」に挑戦しよう！`);
 
     showOnlyThisScreen("hub-screen");
-    checkLevelUp(subject);
+    checkLevelUp(subject, true);                // スキャンで見つけたので、試練の扉が開く
 }
 
 function stopCameraScan() {
@@ -4153,9 +4376,13 @@ const tutorialPages = [
 ・8問以上正解でキャラ加入
 ・失敗しても何度でも挑戦できる
 
-💡 ポイント
-ホーム画面のキャラカードを
-タップすると試練が始まります！
+💡 試練の扉の開け方
+キャンパスにある、そのキャラの
+場所をカメラで写すと、試練の
+扉が開きます。（📷スキャン）
+場所がわからないときは、キャラ
+カードをタップすると、キャラが
+場所を教えてくれます！
         `
     },
     {
@@ -4269,7 +4496,9 @@ function initGame() {
     // ?reset=1 を付けて開くと、セーブデータを消して最初から始められる(テスト・展示用)
     try {
         if (new URLSearchParams(location.search).get("reset") === "1") {
-            ["characterLevels", "playerParty", "tutorialSeen", "playerName"].forEach(safeStorageRemove);
+            ["characterLevels", "playerParty", "tutorialSeen", "playerName", "trialUnlocked", "trialHintTaps"].forEach(safeStorageRemove);
+            trialUnlockedList = [];
+            trialHintTaps = {};
             playerNameMemory = "";
             history.replaceState(null, "", location.pathname);
             alert("セーブデータを消去しました。最初から始めます。");
